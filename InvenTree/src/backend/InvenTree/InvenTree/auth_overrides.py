@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
 import structlog
+import re
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.account.forms import LoginForm, SignupForm, set_form_field_order
 from allauth.headless.adapter import DefaultHeadlessAdapter
@@ -71,6 +72,41 @@ class CustomSignupForm(SignupForm):
             self, ['username', 'email', 'email2', 'password1', 'password2']
         )
 
+    # [AGENT GENERATED CODE - REQUIREMENT:REQ-AUTH-002]
+    def clean_password1(self):
+        """Enforce strong password rules.
+        
+        Password requirements:
+        - At least 8 characters
+        - At least one uppercase letter
+        - At least one lowercase letter
+        - At least one digit
+        - At least one special character
+        """
+        password = self.cleaned_data.get('password1', '')
+        
+        # Check password length
+        if len(password) < 8:
+            raise forms.ValidationError(_('Password must be at least 8 characters long.'))
+        
+        # Check for at least one uppercase letter
+        if not re.search(r'[A-Z]', password):
+            raise forms.ValidationError(_('Password must contain at least one uppercase letter.'))
+        
+        # Check for at least one lowercase letter
+        if not re.search(r'[a-z]', password):
+            raise forms.ValidationError(_('Password must contain at least one lowercase letter.'))
+        
+        # Check for at least one digit
+        if not re.search(r'\d', password):
+            raise forms.ValidationError(_('Password must contain at least one number.'))
+        
+        # Check for at least one special character
+        if not re.search(r'[^A-Za-z0-9]', password):
+            raise forms.ValidationError(_('Password must contain at least one special character.'))
+        
+        return password
+        
     def clean(self):
         """Make sure the supplied emails match if enabled in settings."""
         cleaned_data = super().clean()
@@ -161,6 +197,24 @@ class RegistrationMixin:
 
 class CustomAccountAdapter(RegistrationMixin, DefaultAccountAdapter):
     """Override of adapter to use dynamic settings."""
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:REQ-AUTH-005]
+    def render_mail(self, template_prefix, email, context):
+        """Enhance error messages for authentication failures."""
+        # Add helpful error messages to the context
+        if template_prefix == 'account/password_reset_key':
+            context['reset_message'] = _('If you did not request this password reset, please contact support immediately.')
+        elif template_prefix == 'account/email_confirmation':
+            context['confirm_message'] = _('Please confirm your email address to complete your account setup.')
+        
+        return super().render_mail(template_prefix, email, context)
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:REQ-AUTH-005]
+    def respond_email_verification_sent(self, request, user):
+        """Enhanced response when verification email is sent."""
+        response = super().respond_email_verification_sent(request, user)
+        request.session['custom_message'] = _('A verification email has been sent to your email address. Please check your inbox and follow the instructions to verify your account.')
+        return response
 
     def send_mail(self, template_prefix, email, context):
         """Only send mail if backend configured."""

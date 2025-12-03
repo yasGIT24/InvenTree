@@ -1,0 +1,19 @@
+{% extends "email/email_base.html" %}
+
+{% load i18n %}
+
+{% block content %}
+<!-- [AGENT GENERATED CODE - REQUIREMENT:REQ-AUTH-004] -->
+<p>{% trans "Hello" %} {{ user.username }},</p>
+
+<p>{% trans "Your session has been terminated due to inactivity." %}</p>
+
+<p>{% trans "For security reasons, we automatically log you out after 15 minutes of inactivity." %}</p>
+
+<p>{% trans "Please log in again to continue working with the system." %}</p>
+
+<p>{% trans "If you did not initiate this session, please secure your account immediately by changing your password." %}</p>
+
+<p>{% trans "Thank you" %},<br>
+{% trans "The InvenTree Team" %}</p>
+{% endblock %}

@@ -82,7 +82,84 @@ class InvenTreeNotificationBodies:
         message=_('Items have been received against a return order'),
         template='email/return_order_received.html',
     )
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:REQ-AUTH-003]
+    OTPCode = NotificationBody(
+        name=_('Authentication OTP Code'),
+        slug='auth.otp_code',
+        message=_('Your one-time password (OTP) for authentication'),
+        template='email/otp_code.html',
+    )
+    """Send when a user needs an OTP code for two-factor authentication."""
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:REQ-AUTH-004]
+    SessionTimeout = NotificationBody(
+        name=_('Session Timeout'),
+        slug='auth.session_timeout',
+        message=_('Your session has expired due to inactivity'),
+        template='email/session_timeout.html',
+    )
+    """Send when a user session times out due to inactivity."""
 
+
+# [AGENT GENERATED CODE - REQUIREMENT:REQ-AUTH-003]
+def send_otp_notification(user, otp_code, delivery_method='email'):
+    """Send an OTP code to the user via the specified delivery method.
+    
+    Args:
+        user: The user to send the OTP code to
+        otp_code: The OTP code to send
+        delivery_method: The method to use for delivery ('email' or 'sms')
+    
+    Returns:
+        bool: True if the notification was sent successfully
+    """
+    
+    context = {
+        'user': user,
+        'otp_code': otp_code,
+        'instance': otp_code,
+        'verbose_name': 'OTP Code',
+        'app_label': 'auth',
+        'model_name': 'otp',
+    }
+    
+    # Use the notification system to deliver the OTP
+    return trigger_notification(
+        None,  # No specific model object
+        category='auth.otp_code',
+        obj_ref='otp',
+        context=context,
+        targets=[user],
+        check_recent=False,  # Always send OTP codes, even if recent
+    )
+
+# [AGENT GENERATED CODE - REQUIREMENT:REQ-AUTH-004]
+def send_session_timeout_notification(user):
+    """Send a session timeout notification to the user.
+    
+    Args:
+        user: The user to notify about the session timeout
+    
+    Returns:
+        bool: True if the notification was sent successfully
+    """
+    
+    context = {
+        'user': user,
+        'instance': user.username,
+        'verbose_name': 'Session Timeout',
+        'app_label': 'auth',
+        'model_name': 'session',
+    }
+    
+    return trigger_notification(
+        None,  # No specific model object
+        category='auth.session_timeout',
+        obj_ref='session',
+        context=context,
+        targets=[user],
+    )
 
 def trigger_notification(
     obj: Model, category: Optional[str] = None, obj_ref: str = 'pk', **kwargs

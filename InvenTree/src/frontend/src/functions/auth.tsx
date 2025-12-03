@@ -106,6 +106,8 @@ export async function doBasicLogin(
       }
     })
     .catch(async (err) => {
+      // [AGENT GENERATED CODE - REQUIREMENT:REQ-AUTH-005]
+      // Enhanced error handling with more descriptive messages
       if (err?.response?.status == 401) {
         await handlePossibleMFAError(err);
       } else if (err?.response?.status == 409) {
@@ -114,6 +116,19 @@ export async function doBasicLogin(
           message: t`There is a conflicting session on the server for this browser. Please logout of that first.`,
           color: 'red',
           autoClose: false
+        });
+      } else if (err?.response?.status == 403) {
+        notifications.show({
+          title: t`Account locked`,
+          message: t`Your account has been locked due to too many failed login attempts. Please try again later or contact an administrator.`,
+          color: 'red',
+          autoClose: false
+        });
+      } else {
+        notifications.show({
+          title: t`Login failed`,
+          message: t`Invalid username or password. Please check your credentials and try again.`,
+          color: 'red'
         });
       }
     });
@@ -331,11 +346,20 @@ export async function handleMfaLogin(
           });
         }
       } else {
+        // [AGENT GENERATED CODE - REQUIREMENT:REQ-AUTH-005]
+        // Enhanced error messages for authentication failures
         const errors = err.response?.data?.errors;
-        let msg = t`An error occurred`;
+        let msg = t`Authentication failed. Please try again.`;
 
         if (errors) {
           msg = errors.map((e: any) => e.message).join(', ');
+          
+          // Add helpful details for common error messages
+          if (msg.includes('rate limit')) {
+            msg += t`. For security reasons, please wait before trying again.`;
+          } else if (msg.includes('Invalid code')) {
+            msg = t`Invalid verification code. Please check and try again. If using a TOTP app, ensure your device clock is synchronized.`;
+          }
         }
         setError(msg);
       }

@@ -981,6 +981,12 @@ if (
 # Store language settings for 30 days
 LANGUAGE_COOKIE_AGE = 2592000
 
+# [AGENT GENERATED CODE - REQUIREMENT:REQ-AUTH-004]
+# Session timeout after 15 minutes of inactivity as per requirements
+SESSION_COOKIE_AGE = get_setting('INVENTREE_SESSION_TIMEOUT', 'session.timeout', 60 * 15, typecast=int)
+# Refresh session on activity to ensure timeout is based on inactivity
+SESSION_SAVE_EVERY_REQUEST = True
+
 # Testing interface translations
 if get_boolean_setting('TEST_TRANSLATIONS', default_value=False):  # pragma: no cover
     # Set default language
