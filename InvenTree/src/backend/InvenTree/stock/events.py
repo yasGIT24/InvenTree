@@ -17,3 +17,11 @@ class StockEvents(BaseEventEnum):
     ITEM_INSTALLED_INTO_ASSEMBLY = 'stockitem.installed'
 
     ITEMS_CREATED = 'stockitem.created_items'
+    
+    # Stock threshold events
+    STOCK_THRESHOLD_SAFETY = 'stockitem.threshold_safety'
+    STOCK_THRESHOLD_REORDER = 'stockitem.threshold_reorder'
+    
+    # Stock expiry events
+    STOCK_EXPIRED = 'stockitem.expired'
+    STOCK_EXPIRY_WARNING = 'stockitem.expiry_warning'

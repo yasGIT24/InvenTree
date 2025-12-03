@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+import math
 from typing import Optional
 
 from django.conf import settings
@@ -30,6 +31,7 @@ import build.models
 import common.models
 import InvenTree.exceptions
 import InvenTree.helpers
+from InvenTree.helpers import current_date
 import InvenTree.models
 import InvenTree.ready
 import InvenTree.tasks
@@ -1202,6 +1204,56 @@ class StockItem(
         verbose_name=_('Purchase Price'),
         help_text=_('Single unit purchase price at time of purchase'),
     )
+    
+    # Dynamic threshold fields for inventory management
+    safety_stock = models.DecimalField(
+        max_digits=15,
+        decimal_places=5,
+        validators=[MinValueValidator(0)],
+        default=0,
+        verbose_name=_('Safety Stock'),
+        help_text=_('Minimum stock level before alerts are triggered'),
+    )
+
+    reorder_point = models.DecimalField(
+        max_digits=15,
+        decimal_places=5,
+        validators=[MinValueValidator(0)],
+        default=0,
+        verbose_name=_('Reorder Point'),
+        help_text=_('Stock level at which reordering should occur'),
+    )
+    
+    reorder_quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=5,
+        validators=[MinValueValidator(0)],
+        default=0,
+        verbose_name=_('Reorder Quantity'),
+        help_text=_('Recommended quantity to reorder when stock level reaches reorder point'),
+    )
+    
+    lead_time_days = models.PositiveIntegerField(
+        default=1,
+        verbose_name=_('Lead Time Days'),
+        help_text=_('Estimated lead time for reordering (in days)'),
+    )
+    
+    consumption_rate = models.DecimalField(
+        max_digits=15,
+        decimal_places=5,
+        validators=[MinValueValidator(0)],
+        default=0,
+        verbose_name=_('Consumption Rate'),
+        help_text=_('Average consumption rate (units per day)'),
+    )
+    
+    last_consumption_date = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name=_('Last Consumption Date'),
+        help_text=_('Date when this stock item was last used'),
+    )
 
     owner = models.ForeignKey(
         Owner,
@@ -1295,6 +1347,38 @@ class StockItem(
         expiry_date = today + timedelta(days=stale_days)
 
         return self.expiry_date < expiry_date
+        
+    def days_until_expiry(self):
+        """Return the number of days until this stock item expires.
+        
+        Returns:
+            Number of days until expiry (positive value = still valid, negative = expired)
+            None if no expiry date is set
+        """
+        if self.expiry_date is None:
+            return None
+            
+        today = current_date()
+        days = (self.expiry_date - today).days
+        
+        return days
+    
+    def get_fefo_priority(self):
+        """Calculate First Expired, First Out (FEFO) priority value for this stock item.
+        
+        Returns a priority score where:
+        - Lower values = higher priority (should be used first)
+        - None if not applicable (no expiry date)
+        
+        This can be used for sorting stock items for allocation or usage.
+        """
+        days = self.days_until_expiry()
+        
+        if days is None:
+            return None
+        
+        # Items closest to expiry (or already expired) get highest priority
+        return days
 
     def is_expired(self):
         """Returns True if this StockItem is "expired".
@@ -1313,6 +1397,19 @@ class StockItem(
         today = InvenTree.helpers.current_date()
 
         return self.expiry_date < today
+        
+    def calculate_dynamic_reorder_point(self):
+        """Calculate dynamic reorder point based on lead time and consumption rate.
+        
+        Uses the formula: reorder_point = safety_stock + (consumption_rate * lead_time_days)
+        
+        Returns:
+            Calculated reorder point value
+        """
+        if self.consumption_rate <= 0 or self.lead_time_days <= 0:
+            return self.safety_stock
+            
+        return self.safety_stock + (self.consumption_rate * self.lead_time_days)
 
     def clearAllocations(self):
         """Clear all order allocations for this StockItem.
@@ -1558,6 +1655,46 @@ class StockItem(
         so = self.sales_order_allocation_count()
 
         return bo + so
+        
+    def check_threshold_status(self):
+        """Check if stock item is at or below any threshold levels.
+        
+        Returns:
+            Dict with threshold statuses:
+            {
+                'below_safety': bool,  # True if below safety stock level
+                'below_reorder': bool, # True if below reorder point
+                'days_remaining': int or None,  # Estimated days of stock remaining based on consumption rate
+                'status_code': str,  # Status code for UI display ('critical', 'warning', 'ok')
+            }
+        """
+        result = {
+            'below_safety': False,
+            'below_reorder': False,
+            'days_remaining': None,
+            'status_code': 'ok',
+        }
+        
+        # Calculate available quantity (accounting for allocations)
+        available = max(self.quantity - self.allocation_count(), 0)
+        
+        # Check safety stock threshold
+        if self.safety_stock > 0 and available <= self.safety_stock:
+            result['below_safety'] = True
+            result['status_code'] = 'critical'
+        
+        # Check reorder point threshold (either static or dynamic)
+        reorder_point = max(self.reorder_point, self.calculate_dynamic_reorder_point())
+        if reorder_point > 0 and available <= reorder_point:
+            result['below_reorder'] = True
+            if result['status_code'] != 'critical':
+                result['status_code'] = 'warning'
+        
+        # Calculate days remaining if we have consumption rate data
+        if self.consumption_rate and self.consumption_rate > 0:
+            result['days_remaining'] = math.floor(available / self.consumption_rate)
+            
+        return result
 
     def unallocated_quantity(self):
         """Return the quantity of this StockItem which is *not* allocated."""

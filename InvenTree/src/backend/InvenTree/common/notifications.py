@@ -82,6 +82,36 @@ class InvenTreeNotificationBodies:
         message=_('Items have been received against a return order'),
         template='email/return_order_received.html',
     )
+    
+    # Stock threshold notifications
+    StockItemBelowSafetyThreshold = NotificationBody(
+        name=_('Safety Stock Threshold Reached'),
+        slug='stockitem.below_safety_threshold',
+        message=_('A stock item has fallen below its safety stock threshold'),
+        template='email/stock_safety_threshold.html',
+    )
+    
+    StockItemBelowReorderThreshold = NotificationBody(
+        name=_('Reorder Threshold Reached'),
+        slug='stockitem.below_reorder_threshold',
+        message=_('A stock item has fallen below its reorder point'),
+        template='email/stock_reorder_threshold.html',
+    )
+    
+    # Stock expiry notifications
+    StockItemExpired = NotificationBody(
+        name=_('Stock Item Expired'),
+        slug='stockitem.expired',
+        message=_('A stock item has expired'),
+        template='email/stock_expired.html',
+    )
+    
+    StockItemExpiryWarning = NotificationBody(
+        name=_('Stock Item Expiry Warning'),
+        slug='stockitem.expiry_warning',
+        message=_('A stock item will expire soon'),
+        template='email/stock_expiry_warning.html',
+    )
 
 
 def trigger_notification(
