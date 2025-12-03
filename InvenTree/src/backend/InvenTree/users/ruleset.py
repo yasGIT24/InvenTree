@@ -18,6 +18,7 @@ class RuleSetEnum(StringEnum):
     PURCHASE_ORDER = 'purchase_order'
     SALES_ORDER = 'sales_order'
     RETURN_ORDER = 'return_order'
+    VENDOR_CATEGORY = 'vendor_category'  # [AGENT GENERATED CODE - REQUIREMENT:Enforce Role-Based Access Control for Inventory Actions]
 
 
 # This is a list of all the ruleset choices available in the system.
@@ -32,6 +33,7 @@ RULESET_CHOICES = [
     (RuleSetEnum.PURCHASE_ORDER, _('Purchase Orders')),
     (RuleSetEnum.SALES_ORDER, _('Sales Orders')),
     (RuleSetEnum.RETURN_ORDER, _('Return Orders')),
+    (RuleSetEnum.VENDOR_CATEGORY, _('Vendor Categories')),  # [AGENT GENERATED CODE - REQUIREMENT:Enforce Role-Based Access Control for Inventory Actions]
 ]
 
 # Ruleset names available in the system.
@@ -162,6 +164,10 @@ def get_ruleset_models() -> dict:
             'order_returnorder',
             'order_returnorderlineitem',
             'order_returnorderextraline',
+        ],
+        RuleSetEnum.VENDOR_CATEGORY: [
+            'company_vendorcategory',
+            # [AGENT GENERATED CODE - REQUIREMENT:Enforce Role-Based Access Control for Inventory Actions]
         ],
     }
 

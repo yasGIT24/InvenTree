@@ -21,6 +21,7 @@ from .models import (
     ManufacturerPartParameter,
     SupplierPart,
     SupplierPriceBreak,
+    VendorCategory,
 )
 from .serializers import (
     AddressSerializer,
@@ -30,7 +31,91 @@ from .serializers import (
     ManufacturerPartSerializer,
     SupplierPartSerializer,
     SupplierPriceBreakSerializer,
+    VendorCategorySerializer,
 )
+
+
+class VendorCategoryList(DataExportViewMixin, ListCreateAPI):
+    """API endpoint for accessing a list of VendorCategory objects.
+    
+    - GET: Return list of vendor category objects
+    - POST: Create a new vendor category
+    
+    [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
+    [AGENT GENERATED CODE - REQUIREMENT:Bulk Upload Vendor Categories with Validation]
+    """
+    
+    queryset = VendorCategory.objects.all()
+    serializer_class = VendorCategorySerializer
+    
+    def get_queryset(self):
+        """Return annotated queryset for the vendor category list endpoint."""
+        queryset = super().get_queryset()
+        queryset = VendorCategorySerializer.annotate_queryset(queryset)
+        
+        return queryset
+        
+    filter_backends = SEARCH_ORDER_FILTER
+    
+    filterset_fields = [
+        'name',
+        'parent',
+    ]
+    
+    search_fields = [
+        'name',
+        'description',
+    ]
+    
+    ordering_fields = [
+        'name',
+        'company_count'
+    ]
+    
+    ordering = 'name'
+
+
+class VendorCategoryDetail(RetrieveUpdateDestroyAPI):
+    """Detail API endpoint for VendorCategory object.
+    
+    - GET: Return a single VendorCategory object
+    - PATCH: Update a VendorCategory object
+    - DELETE: Remove a VendorCategory object
+    
+    [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
+    """
+    
+    queryset = VendorCategory.objects.all()
+    serializer_class = VendorCategorySerializer
+    
+    def get_queryset(self):
+        """Return annotated queryset for the vendor category detail endpoint."""
+        queryset = super().get_queryset()
+        queryset = VendorCategorySerializer.annotate_queryset(queryset)
+        
+        return queryset
+    
+    def destroy(self, request, *args, **kwargs):
+        """Custom destroy method with validation.
+        
+        [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
+        """
+        category = self.get_object()
+        
+        # Check if the category is in use
+        in_use = category.company_count > 0 or category.children.count() > 0
+        
+        if in_use:
+            return Response(
+                {
+                    'error': _('Cannot delete vendor category that is in use'),
+                    'in_use': in_use
+                },
+                status=400
+            )
+            
+        # If we get to this point, the category can be safely deleted
+        return super().destroy(request, *args, **kwargs)
 
 
 class CompanyList(DataExportViewMixin, ListCreateAPI):
@@ -551,6 +636,14 @@ supplier_part_api_urls = [
 
 
 company_api_urls = [
+    # Vendor category URLs
+    path(
+        'category/',
+        include([
+            path('<int:pk>/', VendorCategoryDetail.as_view(), name='api-vendor-category-detail'),
+            path('', VendorCategoryList.as_view(), name='api-vendor-category-list'),
+        ]),
+    ),
     path('part/manufacturer/', include(manufacturer_part_api_urls)),
     path('part/', include(supplier_part_api_urls)),
     # Supplier price breaks

@@ -126,6 +126,12 @@ export function companyFields(): ApiFormFieldSet {
       icon: <IconAt />
     },
     tax_id: {},
+    category: {
+      filters: {
+        model_type: 'category',
+      },
+      // [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
+    },
     is_supplier: {},
     is_manufacturer: {},
     is_customer: {},

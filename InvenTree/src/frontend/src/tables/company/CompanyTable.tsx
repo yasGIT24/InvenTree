@@ -61,6 +61,13 @@ export function CompanyTable({
       {
         accessor: 'website',
         sortable: false
+      },
+      {
+        accessor: 'category_detail.name',
+        title: t`Category`,
+        sortable: true,
+        switchable: true
+        // [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
       }
     ];
   }, []);

@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
-from django.db.models import Q, Sum, UniqueConstraint
+from django.db.models import F, Q, Sum, UniqueConstraint
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.urls import reverse
@@ -28,6 +28,7 @@ import InvenTree.ready
 import InvenTree.validators
 import report.mixins
 from common.currency import currency_code_default
+from company.validators import validate_vendor_category_delete
 from InvenTree.fields import InvenTreeURLField, RoundingDecimalField
 from order.status_codes import PurchaseOrderStatusGroups
 
@@ -52,6 +53,42 @@ def rename_company_image(instance, filename):
         fn += '.' + ext
 
     return os.path.join(base, fn)
+
+
+class VendorCategory(InvenTree.models.InvenTreeTree):
+    """Category for organizing vendor data.
+
+    Attributes:
+        name: Name of this category
+        description: Description for this category
+        parent: Reference to the parent category
+    """
+
+    class Meta:
+        """Metaclass defines extra model options."""
+
+        verbose_name = _('Vendor Category')
+        verbose_name_plural = _('Vendor Categories')
+        unique_together = ('name', 'parent')
+
+    @staticmethod
+    def get_api_url():
+        """Return the API URL for this model."""
+        return reverse('api-vendor-category-list')
+
+    def delete(self, *args, **kwargs):
+        """Validate that this category can be deleted before doing so.
+
+        [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
+        """
+        # Validate that the category can be deleted
+        validate_vendor_category_delete(self)
+
+        # If validation passes, delete the category
+        super().delete(*args, **kwargs)
+
+    # Link to companies that use this category
+    companies = models.ManyToManyField('Company', blank=True, related_name='categories')
 
 
 class CompanyReportContext(report.mixins.BaseReportContext):
@@ -231,6 +268,18 @@ class Company(
         verbose_name=_('Tax ID'),
         help_text=_('Company Tax ID'),
     )
+
+    category = models.ForeignKey(
+        VendorCategory,
+        on_delete=models.SET_NULL,
+        related_name='assigned_companies',
+        null=True,
+        blank=True,
+        verbose_name=_('Vendor Category'),
+        help_text=_('Select vendor category'),
+    )
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
 
     @property
     def address(self):

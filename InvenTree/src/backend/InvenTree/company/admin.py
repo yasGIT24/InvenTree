@@ -12,7 +12,21 @@ from .models import (
     ManufacturerPartParameter,
     SupplierPart,
     SupplierPriceBreak,
+    VendorCategory,
 )
+
+
+@admin.register(VendorCategory)
+class VendorCategoryAdmin(admin.ModelAdmin):
+    """Admin class for the VendorCategory model.
+    
+    [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
+    """
+    
+    list_display = ('name', 'description', 'parent', 'pathstring')
+    search_fields = ['name', 'description']
+    
+    autocomplete_fields = ('parent',)
 
 
 @admin.register(Company)
@@ -21,7 +35,7 @@ class CompanyAdmin(admin.ModelAdmin):
 
     serializer_class = company.serializers.CompanySerializer
 
-    list_display = ('name', 'website', 'contact')
+    list_display = ('name', 'website', 'contact', 'category')
 
     search_fields = ['name', 'description']
 

@@ -93,3 +93,46 @@ def validate_sales_order_reference(value):
 
 def validate_tree_name(value):
     """Placeholder for legacy function used in migrations."""
+
+
+def validate_inventory_data(data, model_name):
+    """Validate data for inventory operations.
+    
+    Args:
+        data: Dictionary of data to validate
+        model_name: Name of the model being validated
+        
+    Raises:
+        ValidationError: If the data does not pass validation
+        
+    [AGENT GENERATED CODE - REQUIREMENT:Implement Data Integrity Validation for All Inventory Operations]
+    """
+    
+    errors = {}
+    
+    # General validation for common fields
+    if 'name' in data and data.get('name', '').strip() == '':
+        errors['name'] = _('Name is required')
+        
+    if 'description' in data and len(data.get('description', '')) > 500:
+        errors['description'] = _('Description is too long (maximum 500 characters)')
+    
+    # Model-specific validation
+    if model_name == 'vendorcategory':
+        # Validate vendor category data
+        if 'parent' in data and data['parent']:
+            try:
+                from company.models import VendorCategory
+                parent_id = data['parent']
+                
+                if parent_id == data.get('pk'):
+                    errors['parent'] = _('Category cannot be its own parent')
+                    
+            except Exception:
+                errors['parent'] = _('Invalid parent category')
+    
+    # Raise validation errors if any found
+    if errors:
+        raise ValidationError(errors)
+    
+    return True

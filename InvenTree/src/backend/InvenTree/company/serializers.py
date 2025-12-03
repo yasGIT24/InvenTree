@@ -36,7 +36,48 @@ from .models import (
     ManufacturerPartParameter,
     SupplierPart,
     SupplierPriceBreak,
+    VendorCategory,
 )
+
+
+@register_importer()
+class VendorCategorySerializer(DataImportExportSerializerMixin, InvenTreeModelSerializer):
+    """Serializer for VendorCategory objects.
+    
+    [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
+    [AGENT GENERATED CODE - REQUIREMENT:Bulk Upload Vendor Categories with Validation]
+    """
+
+    class Meta:
+        """Metaclass options."""
+
+        model = VendorCategory
+        fields = [
+            'pk',
+            'name',
+            'description',
+            'pathstring',
+            'parent',
+            'parent_path',
+            'company_count',
+            'in_use',
+        ]
+
+    @staticmethod
+    def annotate_queryset(queryset):
+        """Annotate the supplied queryset with additional information."""
+        # Add count of companies in each category
+        queryset = queryset.annotate(company_count=SubqueryCount('assigned_companies'))
+
+        return queryset
+
+    company_count = serializers.IntegerField(read_only=True)
+
+    in_use = serializers.SerializerMethodField()
+
+    def get_in_use(self, obj):
+        """Return True if this category is in use."""
+        return obj.company_count > 0 or obj.children.count() > 0
 
 
 class CompanyBriefSerializer(InvenTreeModelSerializer):
@@ -149,6 +190,8 @@ class CompanySerializer(
             'address_count',
             'primary_address',
             'tax_id',
+            'category',
+            'category_detail',
         ]
 
     @staticmethod
@@ -180,6 +223,9 @@ class CompanySerializer(
         allow_null=True,
     )
     primary_address = serializers.SerializerMethodField(allow_null=True)
+    category_detail = VendorCategorySerializer(source='category', read_only=True, allow_null=True)
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
 
     @extend_schema_field(serializers.CharField())
     def get_address(self, obj):
