@@ -9,7 +9,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Q, Sum, UniqueConstraint
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -232,6 +232,35 @@ class Company(
         help_text=_('Company Tax ID'),
     )
 
+    # [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
+    def is_category_in_use(self):
+        """
+        Check if this vendor category is in use by any records.
+        
+        Returns:
+            bool: True if this category is in use, False otherwise
+        """
+        # Check if this company has any manufacturer parts
+        if self.is_manufacturer and self.manufactured_parts.exists():
+            return True
+            
+        # Check if this company has any supplier parts
+        if self.is_supplier and self.supplied_parts.exists():
+            return True
+            
+        # Check if this company has any purchase orders
+        if hasattr(apps.get_model('order', 'PurchaseOrder'), 'objects'):
+            if apps.get_model('order', 'PurchaseOrder').objects.filter(supplier=self.pk).exists():
+                return True
+        
+        # Check if this company has any sales orders
+        if hasattr(apps.get_model('order', 'SalesOrder'), 'objects'):
+            if apps.get_model('order', 'SalesOrder').objects.filter(customer=self.pk).exists():
+                return True
+                
+        return False
+    # [/AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
+
     @property
     def address(self):
         """Return the string representation for the primary address.
@@ -296,6 +325,19 @@ class Company(
             Q(supplier_part__supplier=self.id)
             | Q(supplier_part__manufacturer_part__manufacturer=self.id)
         ).distinct()
+
+
+# [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
+@receiver(pre_delete, sender=Company)
+def prevent_company_deletion_if_in_use(sender, instance, **kwargs):
+    """
+    Prevent deletion of a company if it is in use.
+    """
+    if instance.is_category_in_use():
+        raise ValidationError(
+            _("Cannot delete this vendor category as it is in use by other records.")
+        )
+# [/AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
 
 
 class Contact(InvenTree.models.InvenTreeMetadataModel):

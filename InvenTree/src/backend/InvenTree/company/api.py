@@ -5,6 +5,8 @@ from django.urls import include, path
 from django.utils.translation import gettext_lazy as _
 
 from django_filters import rest_framework as rest_filters
+from rest_framework import serializers, status
+from rest_framework.response import Response
 
 import part.models
 from data_exporter.mixins import DataExportViewMixin
@@ -79,6 +81,24 @@ class CompanyDetail(RetrieveUpdateDestroyAPI):
         queryset = CompanySerializer.annotate_queryset(queryset)
 
         return queryset
+        
+    # [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
+    def destroy(self, request, *args, **kwargs):
+        """
+        Custom destroy method to check if the company can be safely deleted.
+        """
+        company = self.get_object()
+        
+        # Check if the category is in use
+        if company.is_category_in_use():
+            return Response(
+                {"detail": _("Cannot delete this vendor category as it is in use by other records.")},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # If not in use, proceed with deletion
+        return super().destroy(request, *args, **kwargs)
+    # [/AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
 
 
 class ContactList(DataExportViewMixin, ListCreateDestroyAPIView):

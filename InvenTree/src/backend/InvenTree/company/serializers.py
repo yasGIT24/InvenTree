@@ -149,6 +149,7 @@ class CompanySerializer(
             'address_count',
             'primary_address',
             'tax_id',
+            'is_in_use',  # [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
         ]
 
     @staticmethod
@@ -180,6 +181,20 @@ class CompanySerializer(
         allow_null=True,
     )
     primary_address = serializers.SerializerMethodField(allow_null=True)
+
+    # [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
+    is_in_use = serializers.SerializerMethodField(
+        label=_('Is this vendor category in use?'),
+        read_only=True
+    )
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_in_use(self, obj):
+        """
+        Return whether this company/vendor category is currently in use.
+        """
+        return obj.is_category_in_use()
+    # [/AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
 
     @extend_schema_field(serializers.CharField())
     def get_address(self, obj):
