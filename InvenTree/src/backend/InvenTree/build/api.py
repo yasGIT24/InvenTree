@@ -18,6 +18,7 @@ import common.models
 import part.models as part_models
 import stock.models as stock_models
 import stock.serializers
+from build.kit import KitBuild, KitItem, KitStatus
 from build.models import Build, BuildItem, BuildLine
 from build.status_codes import BuildStatus, BuildStatusGroups
 from data_exporter.mixins import DataExportViewMixin
@@ -98,50 +99,39 @@ class BuildFilter(rest_filters.FilterSet):
         - If "include_variants" is True, include all variants of the selected part.
         - Otherwise, just filter by the selected part.
         """
-        include_variants = str2bool(self.data.get('include_variants', False))
+        if str2bool(self.request.query_params.get('include_variants', False)):
+            # Include all variants of the selected part
+            variant_ids = part.get_descendants(include_self=True).values('pk')
+            return queryset.filter(part__pk__in=variant_ids)
 
-        if include_variants:
-            return queryset.filter(part__in=part.get_descendants(include_self=True))
-        else:
-            return queryset.filter(part=part)
+        return queryset.filter(part=part)
 
-    category = rest_filters.ModelChoiceFilter(
-        queryset=part_models.PartCategory.objects.all(),
-        method='filter_category',
-        label=_('Category'),
+    project_code = rest_filters.ModelChoiceFilter(
+        queryset=common.models.ProjectCode.objects.all(),
+        label=_('Project Code'),
     )
 
-    @extend_schema_field(serializers.IntegerField(help_text=_('Category')))
-    def filter_category(self, queryset, name, category):
-        """Filter by part category (including sub-categories)."""
-        categories = category.get_descendants(include_self=True)
-        return queryset.filter(part__category__in=categories)
-
-    ancestor = rest_filters.ModelChoiceFilter(
-        queryset=Build.objects.all(),
-        label=_('Ancestor Build'),
-        method='filter_ancestor',
+    has_project_code = rest_filters.BooleanFilter(
+        field_name='project_code',
+        label=_('Has project code'),
+        lookup_expr='isnull',
+        exclude=True,
     )
 
-    @extend_schema_field(serializers.IntegerField(help_text=_('Ancestor Build')))
-    def filter_ancestor(self, queryset, name, parent):
-        """Filter by 'parent' build order."""
-        builds = parent.get_descendants(include_self=False)
-        return queryset.filter(pk__in=[b.pk for b in builds])
-
-    overdue = rest_filters.BooleanFilter(
-        label='Build is overdue', method='filter_overdue'
+    completed = rest_filters.DateFromToRangeFilter(
+        label=_('Completed'), field_name='completion_date'
     )
 
-    def filter_overdue(self, queryset, name, value):
-        """Filter the queryset to either include or exclude orders which are overdue."""
-        if str2bool(value):
-            return queryset.filter(Build.OVERDUE_FILTER)
-        return queryset.exclude(Build.OVERDUE_FILTER)
-
-    assigned_to_me = rest_filters.BooleanFilter(
-        label=_('Assigned to me'), method='filter_assigned_to_me'
+    required_by = rest_filters.DateFromToRangeFilter(
+        label=_('Required by'), field_name='target_date'
     )
+
+    responsible = rest_filters.ModelChoiceFilter(
+        queryset=Owner.objects.all(),
+        label=_('Responsible'),
+    )
+
+    assigned_to_me = rest_filters.BooleanFilter(label=_('Assigned to me'), method='filter_assigned_to_me')
 
     def filter_assigned_to_me(self, queryset, name, value):
         """Filter by orders which are assigned to the current user."""
@@ -154,868 +144,404 @@ class BuildFilter(rest_filters.FilterSet):
             return queryset.filter(responsible__in=owners)
         return queryset.exclude(responsible__in=owners)
 
-    assigned_to = rest_filters.ModelChoiceFilter(
-        queryset=Owner.objects.all(), field_name='responsible', label=_('Assigned To')
+    overdue = rest_filters.BooleanFilter(label=_('Overdue'), method='filter_overdue')
+
+    def filter_overdue(self, queryset, name, value):
+        """Filter by whether the build is 'overdue' or not."""
+        value = str2bool(value)
+
+        if value:
+            return queryset.filter(Build.OVERDUE_FILTER)
+        return queryset.exclude(Build.OVERDUE_FILTER)
+
+    created = InvenTreeDateFilter(
+        label=_('Created date'),
     )
 
-    def filter_responsible(self, queryset, name, owner):
-        """Filter by orders which are assigned to the specified owner."""
-        owners = list(Owner.objects.filter(pk=owner))
+    search = rest_filters.CharFilter(label=_('Search'), method='filter_search')
 
-        # if we query by a user, also find all ownerships through group memberships
-        if len(owners) > 0 and owners[0].label() == 'user':
-            owners = Owner.get_owners_matching_user(
-                User.objects.get(pk=owners[0].owner_id)
-            )
+    def filter_search(self, queryset, name, value):
+        """Custom search filter for the BuildList endpoint."""
+        search_terms = value.strip().split()
 
-        return queryset.filter(responsible__in=owners)
+        if not search_terms:
+            return queryset
 
-    # Exact match for reference
-    reference = rest_filters.CharFilter(
-        label='Filter by exact reference', field_name='reference', lookup_expr='iexact'
-    )
+        search_fields = [
+            'reference',
+            'title',
+            'part__name',
+            'part__description',
+            'part__IPN',
+        ]
 
-    project_code = rest_filters.ModelChoiceFilter(
-        queryset=common.models.ProjectCode.objects.all(), field_name='project_code'
-    )
-
-    has_project_code = rest_filters.BooleanFilter(
-        label='has_project_code', method='filter_has_project_code'
-    )
-
-    def filter_has_project_code(self, queryset, name, value):
-        """Filter by whether or not the order has a project code."""
-        if str2bool(value):
-            return queryset.exclude(project_code=None)
-        return queryset.filter(project_code=None)
-
-    created_before = InvenTreeDateFilter(
-        label=_('Created before'), field_name='creation_date', lookup_expr='lt'
-    )
-
-    created_after = InvenTreeDateFilter(
-        label=_('Created after'), field_name='creation_date', lookup_expr='gt'
-    )
-
-    has_start_date = rest_filters.BooleanFilter(
-        label=_('Has start date'), method='filter_has_start_date'
-    )
-
-    def filter_has_start_date(self, queryset, name, value):
-        """Filter by whether or not the order has a start date."""
-        return queryset.filter(start_date__isnull=not str2bool(value))
-
-    start_date_before = InvenTreeDateFilter(
-        label=_('Start date before'), field_name='start_date', lookup_expr='lt'
-    )
-
-    start_date_after = InvenTreeDateFilter(
-        label=_('Start date after'), field_name='start_date', lookup_expr='gt'
-    )
-
-    has_target_date = rest_filters.BooleanFilter(
-        label=_('Has target date'), method='filter_has_target_date'
-    )
-
-    def filter_has_target_date(self, queryset, name, value):
-        """Filter by whether or not the order has a target date."""
-        return queryset.filter(target_date__isnull=not str2bool(value))
-
-    target_date_before = InvenTreeDateFilter(
-        label=_('Target date before'), field_name='target_date', lookup_expr='lt'
-    )
-
-    target_date_after = InvenTreeDateFilter(
-        label=_('Target date after'), field_name='target_date', lookup_expr='gt'
-    )
-
-    completed_before = InvenTreeDateFilter(
-        label=_('Completed before'), field_name='completion_date', lookup_expr='lt'
-    )
-
-    completed_after = InvenTreeDateFilter(
-        label=_('Completed after'), field_name='completion_date', lookup_expr='gt'
-    )
-
-    min_date = InvenTreeDateFilter(label=_('Min Date'), method='filter_min_date')
-
-    def filter_min_date(self, queryset, name, value):
-        """Filter the queryset to include orders *after* a specified date.
-
-        This filter is used in combination with filter_max_date,
-        to provide a queryset which matches a particular range of dates.
-
-        In particular, this is used in the UI for the calendar view.
-
-        So, we are interested in orders which are active *after* this date:
-
-        - creation_date is set *after* this date (but there is no start date)
-        - start_date is set *after* this date
-        - target_date is set *after* this date
-
-        """
-        q1 = Q(creation_date__gte=value, start_date__isnull=True)
-        q2 = Q(start_date__gte=value)
-        q3 = Q(target_date__gte=value)
-
-        return queryset.filter(q1 | q2 | q3).distinct()
-
-    max_date = InvenTreeDateFilter(label=_('Max Date'), method='filter_max_date')
-
-    def filter_max_date(self, queryset, name, value):
-        """Filter the queryset to include orders *before* a specified date.
-
-        This filter is used in combination with filter_min_date,
-        to provide a queryset which matches a particular range of dates.
-
-        In particular, this is used in the UI for the calendar view.
-
-        So, we are interested in orders which are active *before* this date:
-
-        - creation_date is set *before* this date (but there is no start date)
-        - start_date is set *before* this date
-        - target_date is set *before* this date
-        """
-        q1 = Q(creation_date__lte=value, start_date__isnull=True)
-        q2 = Q(start_date__lte=value)
-        q3 = Q(target_date__lte=value)
-
-        return queryset.filter(q1 | q2 | q3).distinct()
-
-    exclude_tree = rest_filters.ModelChoiceFilter(
-        queryset=Build.objects.all(),
-        method='filter_exclude_tree',
-        label=_('Exclude Tree'),
-    )
-
-    @extend_schema_field(serializers.IntegerField(help_text=_('Exclude Tree')))
-    def filter_exclude_tree(self, queryset, name, value):
-        """Filter by excluding a tree of Build objects."""
-        queryset = queryset.exclude(
-            pk__in=[bld.pk for bld in value.get_descendants(include_self=True)]
-        )
+        search_query = build.serializers.build_search_query(search_fields, search_terms)
+        queryset = queryset.filter(search_query)
 
         return queryset
 
 
-class BuildMixin:
-    """Mixin class for Build API endpoints."""
+# <!-- AGENT GENERATED CODE: KIT API INTEGRATION -->
 
-    queryset = Build.objects.all()
-    serializer_class = build.serializers.BuildSerializer
-
-    def get_queryset(self):
-        """Return the queryset for the Build API endpoints."""
-        queryset = super().get_queryset()
-
-        queryset = queryset.prefetch_related(
-            'responsible',
-            'issued_by',
-            'build_lines',
-            'build_lines__bom_item',
-            'build_lines__build',
-            'part',
-            'part__pricing_data',
-        )
-
-        return queryset
-
-
-class BuildList(DataExportViewMixin, BuildMixin, ListCreateAPI):
-    """API endpoint for accessing a list of Build objects.
-
-    - GET: Return list of objects (with filters)
-    - POST: Create a new Build object
-    """
-
-    filterset_class = BuildFilter
-
-    filter_backends = SEARCH_ORDER_FILTER_ALIAS
-
-    ordering_fields = [
-        'reference',
-        'part__name',
-        'status',
-        'creation_date',
-        'start_date',
-        'target_date',
-        'completion_date',
-        'quantity',
-        'completed',
-        'issued_by',
-        'responsible',
-        'project_code',
-        'priority',
-        'level',
-        'external',
-    ]
-
-    ordering_field_aliases = {
-        'reference': ['reference_int', 'reference'],
-        'project_code': ['project_code__code'],
-    }
-
-    ordering = '-reference'
-
-    search_fields = [
-        'reference',
-        'title',
-        'part__name',
-        'part__IPN',
-        'part__description',
-        'project_code__code',
-        'priority',
-    ]
-
-    def get_queryset(self):
-        """Override the queryset filtering, as some of the fields don't natively play nicely with DRF."""
-        queryset = super().get_queryset().select_related('part')
-
-        queryset = build.serializers.BuildSerializer.annotate_queryset(queryset)
-
-        return queryset
-
-    def get_serializer(self, *args, **kwargs):
-        """Add extra context information to the endpoint serializer."""
-        try:
-            part_detail = str2bool(self.request.GET.get('part_detail', True))
-        except AttributeError:
-            part_detail = True
-
-        kwargs['part_detail'] = part_detail
-        kwargs['create'] = True
-
-        return super().get_serializer(*args, **kwargs)
-
-
-class BuildDetail(BuildMixin, RetrieveUpdateDestroyAPI):
-    """API endpoint for detail view of a Build object."""
-
-    def destroy(self, request, *args, **kwargs):
-        """Only allow deletion of a BuildOrder if the build status is CANCELLED."""
-        build = self.get_object()
-
-        if build.status != BuildStatus.CANCELLED:
-            raise ValidationError({
-                'non_field_errors': [
-                    _('Build must be cancelled before it can be deleted')
-                ]
-            })
-
-        return super().destroy(request, *args, **kwargs)
-
-
-class BuildUnallocate(CreateAPI):
-    """API endpoint for unallocating stock items from a build order.
-
-    - The BuildOrder object is specified by the URL
-    - "output" (StockItem) can optionally be specified
-    - "bom_item" can optionally be specified
-    """
-
-    queryset = Build.objects.none()
-
-    serializer_class = build.serializers.BuildUnallocationSerializer
-
-    def get_serializer_context(self):
-        """Add extra context information to the endpoint serializer."""
-        ctx = super().get_serializer_context()
-
-        try:
-            ctx['build'] = Build.objects.get(pk=self.kwargs.get('pk', None))
-        except Exception:
-            pass
-
-        ctx['request'] = self.request
-
-        return ctx
-
-
-class BuildLineFilter(rest_filters.FilterSet):
-    """Custom filterset for the BuildLine API endpoint."""
+class KitBuildFilter(rest_filters.FilterSet):
+    """Custom filterset for KitBuild API endpoint."""
 
     class Meta:
-        """Meta information for the BuildLineFilter class."""
+        """Metaclass options."""
 
-        model = BuildLine
-        fields = ['build', 'bom_item']
+        model = KitBuild
+        fields = ['build', 'part']
 
-    # Fields on related models
-    consumable = rest_filters.BooleanFilter(
-        label=_('Consumable'), field_name='bom_item__consumable'
-    )
-    optional = rest_filters.BooleanFilter(
-        label=_('Optional'), field_name='bom_item__optional'
-    )
-    assembly = rest_filters.BooleanFilter(
-        label=_('Assembly'), field_name='bom_item__sub_part__assembly'
-    )
-    tracked = rest_filters.BooleanFilter(
-        label=_('Tracked'), field_name='bom_item__sub_part__trackable'
-    )
-    testable = rest_filters.BooleanFilter(
-        label=_('Testable'), field_name='bom_item__sub_part__testable'
-    )
+    status = rest_filters.NumberFilter(label=_('Kit Status'), method='filter_status')
 
-    part = rest_filters.ModelChoiceFilter(
-        queryset=part_models.Part.objects.all(),
-        label=_('Part'),
-        field_name='bom_item__sub_part',
-    )
+    def filter_status(self, queryset, name, value):
+        """Filter by integer status code."""
+        return queryset.filter(status=value)
 
-    order_outstanding = rest_filters.BooleanFilter(
-        label=_('Order Outstanding'), method='filter_order_outstanding'
-    )
+    completed = rest_filters.BooleanFilter(label=_('Completed'), method='filter_completed')
 
-    def filter_order_outstanding(self, queryset, name, value):
-        """Filter by whether the associated BuildOrder is 'outstanding'."""
+    def filter_completed(self, queryset, name, value):
+        """Filter by whether the kit is completed or not."""
         if str2bool(value):
-            return queryset.filter(build__status__in=BuildStatusGroups.ACTIVE_CODES)
-        return queryset.exclude(build__status__in=BuildStatusGroups.ACTIVE_CODES)
-
-    allocated = rest_filters.BooleanFilter(
-        label=_('Allocated'), method='filter_allocated'
-    )
-
-    def filter_allocated(self, queryset, name, value):
-        """Filter by whether each BuildLine is fully allocated."""
-        if str2bool(value):
-            return queryset.filter(allocated__gte=F('quantity'))
-        return queryset.filter(allocated__lt=F('quantity'))
-
-    consumed = rest_filters.BooleanFilter(label=_('Consumed'), method='filter_consumed')
-
-    def filter_consumed(self, queryset, name, value):
-        """Filter by whether each BuildLine is fully consumed."""
-        if str2bool(value):
-            return queryset.filter(consumed__gte=F('quantity'))
-        return queryset.filter(consumed__lt=F('quantity'))
-
-    available = rest_filters.BooleanFilter(
-        label=_('Available'), method='filter_available'
-    )
-
-    def filter_available(self, queryset, name, value):
-        """Filter by whether there is sufficient stock available for each BuildLine.
-
-        To determine this, we need to know:
-
-        - The quantity required for each BuildLine
-        - The quantity available for each BuildLine (including variants and substitutes)
-        - The quantity allocated for each BuildLine
-        """
-        flt = Q(
-            quantity__lte=F('allocated')
-            + F('consumed')
-            + F('available_stock')
-            + F('available_substitute_stock')
-            + F('available_variant_stock')
-        )
-
-        if str2bool(value):
-            return queryset.filter(flt)
-        return queryset.exclude(flt)
-
-
-class BuildLineMixin:
-    """Mixin class for BuildLine API endpoints."""
-
-    queryset = BuildLine.objects.all()
-    serializer_class = build.serializers.BuildLineSerializer
-
-    def get_serializer(self, *args, **kwargs):
-        """Return the serializer instance for this endpoint."""
-        kwargs['context'] = self.get_serializer_context()
-
-        try:
-            params = self.request.query_params
-
-            kwargs['bom_item_detail'] = str2bool(params.get('bom_item_detail', True))
-            kwargs['assembly_detail'] = str2bool(params.get('assembly_detail', True))
-            kwargs['part_detail'] = str2bool(params.get('part_detail', True))
-            kwargs['build_detail'] = str2bool(params.get('build_detail', False))
-            kwargs['allocations'] = str2bool(params.get('allocations', True))
-        except AttributeError:
-            pass
-
-        return super().get_serializer(*args, **kwargs)
-
-    def get_source_build(self) -> Build:
-        """Return the source Build object for the BuildLine queryset.
-
-        This source build is used to filter the available stock for each BuildLine.
-
-        - If this is a "detail" view, use the build associated with the line
-        - If this is a "list" view, use the build associated with the request
-        """
-        raise NotImplementedError(
-            'get_source_build must be implemented in the child class'
-        )
-
-    def get_queryset(self):
-        """Override queryset to select-related and annotate."""
-        queryset = super().get_queryset()
-
-        if not hasattr(self, 'source_build'):
-            self.source_build = self.get_source_build()
-
-        source_build = self.source_build
-
-        return build.serializers.BuildLineSerializer.annotate_queryset(
-            queryset, build=source_build
-        )
-
-
-class BuildLineList(BuildLineMixin, DataExportViewMixin, ListCreateAPI):
-    """API endpoint for accessing a list of BuildLine objects."""
-
-    filterset_class = BuildLineFilter
-    filter_backends = SEARCH_ORDER_FILTER_ALIAS
-
-    ordering_fields = [
-        'part',
-        'allocated',
-        'consumed',
-        'reference',
-        'quantity',
-        'consumable',
-        'optional',
-        'unit_quantity',
-        'available_stock',
-        'trackable',
-        'allow_variants',
-        'inherited',
-    ]
-
-    ordering_field_aliases = {
-        'part': 'bom_item__sub_part__name',
-        'reference': 'bom_item__reference',
-        'unit_quantity': 'bom_item__quantity',
-        'consumable': 'bom_item__consumable',
-        'optional': 'bom_item__optional',
-        'trackable': 'bom_item__sub_part__trackable',
-        'allow_variants': 'bom_item__allow_variants',
-        'inherited': 'bom_item__inherited',
-    }
-
-    search_fields = [
-        'bom_item__sub_part__name',
-        'bom_item__sub_part__IPN',
-        'bom_item__sub_part__description',
-        'bom_item__reference',
-    ]
-
-    def get_source_build(self) -> Build | None:
-        """Return the target build for the BuildLine queryset."""
-        source_build = None
-
-        try:
-            build_id = self.request.query_params.get('build', None)
-            if build_id:
-                source_build = Build.objects.filter(pk=build_id).first()
-        except (Build.DoesNotExist, AttributeError, ValueError):
-            pass
-
-        return source_build
-
-
-class BuildLineDetail(BuildLineMixin, RetrieveUpdateDestroyAPI):
-    """API endpoint for detail view of a BuildLine object."""
-
-    def get_source_build(self) -> Build | None:
-        """Return the target source location for the BuildLine queryset."""
-        return None
-
-
-class BuildOrderContextMixin:
-    """Mixin class which adds build order as serializer context variable."""
-
-    def get_serializer_context(self):
-        """Add extra context information to the endpoint serializer."""
-        ctx = super().get_serializer_context()
-
-        ctx['request'] = self.request
-        ctx['to_complete'] = True
-
-        try:
-            ctx['build'] = Build.objects.get(pk=self.kwargs.get('pk', None))
-        except Exception:
-            pass
-
-        return ctx
-
-
-@extend_schema(responses={201: stock.serializers.StockItemSerializer(many=True)})
-class BuildOutputCreate(BuildOrderContextMixin, CreateAPI):
-    """API endpoint for creating new build output(s)."""
-
-    queryset = Build.objects.none()
-
-    serializer_class = build.serializers.BuildOutputCreateSerializer
-    pagination_class = None
-
-    def create(self, request, *args, **kwargs):
-        """Override the create method to handle the creation of build outputs."""
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        # Create the build output(s)
-        outputs = serializer.save()
-
-        queryset = stock.serializers.StockItemSerializer.annotate_queryset(outputs)
-        response = stock.serializers.StockItemSerializer(queryset, many=True)
-
-        # Return the created outputs
-        return Response(response.data, status=status.HTTP_201_CREATED)
-
-
-class BuildOutputScrap(BuildOrderContextMixin, CreateAPI):
-    """API endpoint for scrapping build output(s)."""
-
-    queryset = Build.objects.none()
-    serializer_class = build.serializers.BuildOutputScrapSerializer
-
-    def get_serializer_context(self):
-        """Add extra context information to the endpoint serializer."""
-        ctx = super().get_serializer_context()
-        ctx['to_complete'] = False
-        return ctx
-
-
-class BuildOutputComplete(BuildOrderContextMixin, CreateAPI):
-    """API endpoint for completing build outputs."""
-
-    queryset = Build.objects.none()
-
-    serializer_class = build.serializers.BuildOutputCompleteSerializer
-
-
-class BuildOutputDelete(BuildOrderContextMixin, CreateAPI):
-    """API endpoint for deleting multiple build outputs."""
-
-    def get_serializer_context(self):
-        """Add extra context information to the endpoint serializer."""
-        ctx = super().get_serializer_context()
-
-        ctx['to_complete'] = False
-
-        return ctx
-
-    queryset = Build.objects.none()
-
-    serializer_class = build.serializers.BuildOutputDeleteSerializer
-
-
-class BuildFinish(BuildOrderContextMixin, CreateAPI):
-    """API endpoint for marking a build as finished (completed)."""
-
-    queryset = Build.objects.none()
-    serializer_class = build.serializers.BuildCompleteSerializer
-
-    def get_queryset(self):
-        """Return the queryset for the BuildFinish API endpoint."""
-        queryset = super().get_queryset()
-        queryset = queryset.prefetch_related('build_lines', 'build_lines__allocations')
+            return queryset.filter(status=KitStatus.COMPLETE)
+        return queryset.exclude(status=KitStatus.COMPLETE)
+
+    search = rest_filters.CharFilter(label=_('Search'), method='filter_search')
+
+    def filter_search(self, queryset, name, value):
+        """Custom search filter for the KitBuild endpoint."""
+        search_terms = value.strip().split()
+
+        if not search_terms:
+            return queryset
+
+        search_fields = [
+            'reference',
+            'title',
+            'build__reference',
+            'part__name',
+            'part__description',
+        ]
+
+        queries = []
+
+        for term in search_terms:
+            query = None
+
+            for field in search_fields:
+                if query:
+                    query |= Q(**{f"{field}__icontains": term})
+                else:
+                    query = Q(**{f"{field}__icontains": term})
+
+            if query:
+                queries.append(query)
+
+        if queries:
+            import functools
+            query = functools.reduce(lambda x, y: x & y, queries)
+            queryset = queryset.filter(query)
 
         return queryset
 
 
-class BuildAutoAllocate(BuildOrderContextMixin, CreateAPI):
-    """API endpoint for 'automatically' allocating stock against a build order.
-
-    - Only looks at 'untracked' parts
-    - If stock exists in a single location, easy!
-    - If user decides that stock items are "fungible", allocate against multiple stock items
-    - If the user wants to, allocate substitute parts if the primary parts are not available.
-    """
-
-    queryset = Build.objects.none()
-    serializer_class = build.serializers.BuildAutoAllocationSerializer
-
-
-class BuildAllocate(BuildOrderContextMixin, CreateAPI):
-    """API endpoint to allocate stock items to a build order.
-
-    - The BuildOrder object is specified by the URL
-    - Items to allocate are specified as a list called "items" with the following options:
-        - bom_item: pk value of a given BomItem object (must match the part associated with this build)
-        - stock_item: pk value of a given StockItem object
-        - quantity: quantity to allocate
-        - output: StockItem (build order output) to allocate stock against (optional)
-    """
-
-    queryset = Build.objects.none()
-    serializer_class = build.serializers.BuildAllocationSerializer
-
-
-class BuildConsume(BuildOrderContextMixin, CreateAPI):
-    """API endpoint to consume stock against a build order."""
-
-    queryset = Build.objects.none()
-    serializer_class = build.serializers.BuildConsumeSerializer
-
-
-class BuildIssue(BuildOrderContextMixin, CreateAPI):
-    """API endpoint for issuing a BuildOrder."""
-
-    queryset = Build.objects.all()
-    serializer_class = build.serializers.BuildIssueSerializer
-
-
-class BuildHold(BuildOrderContextMixin, CreateAPI):
-    """API endpoint for placing a BuildOrder on hold."""
-
-    queryset = Build.objects.all()
-    serializer_class = build.serializers.BuildHoldSerializer
-
-
-class BuildCancel(BuildOrderContextMixin, CreateAPI):
-    """API endpoint for cancelling a BuildOrder."""
-
-    queryset = Build.objects.all()
-    serializer_class = build.serializers.BuildCancelSerializer
-
-
-class BuildItemDetail(RetrieveUpdateDestroyAPI):
-    """API endpoint for detail view of a BuildItem object."""
-
-    queryset = BuildItem.objects.all()
-    serializer_class = build.serializers.BuildItemSerializer
-
-
-class BuildItemFilter(rest_filters.FilterSet):
-    """Custom filterset for the BuildItemList API endpoint."""
+class KitItemFilter(rest_filters.FilterSet):
+    """Custom filterset for KitItem API endpoint."""
 
     class Meta:
-        """Metaclass option."""
+        """Metaclass options."""
 
-        model = BuildItem
-        fields = ['build_line', 'stock_item', 'install_into']
-
-    include_variants = rest_filters.BooleanFilter(
-        label=_('Include Variants'), method='filter_include_variants'
-    )
-
-    def filter_include_variants(self, queryset, name, value):
-        """Filter by whether or not to include variants of the selected part.
-
-        Note:
-        - This filter does nothing by itself, and requires the 'part' filter to be set.
-        - Refer to the 'filter_part' method for more information.
-        """
-        return queryset
+        model = KitItem
+        fields = ['kit', 'bom_item', 'stock_item', 'completed']
 
     part = rest_filters.ModelChoiceFilter(
         queryset=part_models.Part.objects.all(),
         label=_('Part'),
         method='filter_part',
-        field_name='stock_item__part',
     )
 
-    def filter_part(self, queryset, name, part):
-        """Filter by 'part' which is being built.
+    def filter_part(self, queryset, name, value):
+        """Filter by the part associated with this KitItem."""
+        return queryset.filter(bom_item__sub_part=value)
 
-        Note:
-        - If "include_variants" is True, include all variants of the selected part.
-        - Otherwise, just filter by the selected part.
-        """
-        include_variants = str2bool(self.data.get('include_variants', False))
 
-        if include_variants:
-            return queryset.filter(
-                stock_item__part__in=part.get_descendants(include_self=True)
-            )
-        else:
-            return queryset.filter(stock_item__part=part)
+class KitBuildSerializer(serializers.ModelSerializer):
+    """Serializer for the KitBuild model."""
 
-    build = rest_filters.ModelChoiceFilter(
-        queryset=build.models.Build.objects.all(),
-        label=_('Build Order'),
-        field_name='build_line__build',
+    status_text = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        """Metaclass options."""
+
+        model = KitBuild
+        fields = [
+            'pk',
+            'build',
+            'part',
+            'reference',
+            'title',
+            'quantity',
+            'batch',
+            'target_date',
+            'completion_date',
+            'status',
+            'status_text',
+            'completed_by',
+            'link',
+            'notes',
+        ]
+
+    def validate(self, data):
+        """Perform validation on the KitBuild data."""
+        # If part not specified, use the build part
+        if 'part' not in data and 'build' in data:
+            data['part'] = data['build'].part
+
+        return data
+
+
+class KitItemSerializer(serializers.ModelSerializer):
+    """Serializer for the KitItem model."""
+
+    part = serializers.PrimaryKeyRelatedField(
+        source='bom_item.sub_part',
+        read_only=True,
     )
 
-    tracked = rest_filters.BooleanFilter(label='Tracked', method='filter_tracked')
-
-    def filter_tracked(self, queryset, name, value):
-        """Filter the queryset based on whether build items are tracked."""
-        if str2bool(value):
-            return queryset.exclude(install_into=None)
-        return queryset.filter(install_into=None)
-
-    location = rest_filters.ModelChoiceFilter(
-        queryset=stock_models.StockLocation.objects.all(),
-        label=_('Location'),
-        method='filter_location',
+    part_detail = part_models.PartSerializer(
+        source='bom_item.sub_part',
+        read_only=True,
+        many=False,
     )
 
-    @extend_schema_field(serializers.IntegerField(help_text=_('Location')))
-    def filter_location(self, queryset, name, location):
-        """Filter the queryset based on the specified location."""
-        locations = location.get_descendants(include_self=True)
-        return queryset.filter(stock_item__location__in=locations)
+    class Meta:
+        """Metaclass options."""
 
-    output = NumberOrNullFilter(
-        field_name='install_into',
-        label=_('Output'),
-        help_text=_(
-            "Filter by output stock item ID. Use 'null' to find uninstalled build items."
-        ),
-    )
+        model = KitItem
+        fields = [
+            'pk',
+            'kit',
+            'bom_item',
+            'stock_item',
+            'quantity',
+            'install_into',
+            'part',
+            'part_detail',
+            'completed',
+            'notes',
+        ]
 
 
-class BuildItemList(DataExportViewMixin, BulkDeleteMixin, ListCreateAPI):
-    """API endpoint for accessing a list of BuildItem objects.
+class KitBuildList(ListCreateAPI):
+    """API endpoint for accessing a list of KitBuild objects.
 
-    - GET: Return list of objects
-    - POST: Create a new BuildItem object
+    - GET: Return a list of all KitBuild objects
+    - POST: Create a new KitBuild object
     """
 
-    queryset = BuildItem.objects.all()
-    serializer_class = build.serializers.BuildItemSerializer
-    filterset_class = BuildItemFilter
-    filter_backends = SEARCH_ORDER_FILTER_ALIAS
+    queryset = KitBuild.objects.all()
+    serializer_class = KitBuildSerializer
+    filterset_class = KitBuildFilter
 
-    def get_serializer(self, *args, **kwargs):
-        """Returns a BuildItemSerializer instance based on the request."""
-        try:
-            params = self.request.query_params
+    def create(self, request, *args, **kwargs):
+        """Create a new KitBuild object."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
-            for key in [
-                'part_detail',
-                'location_detail',
-                'stock_detail',
-                'build_detail',
-            ]:
-                if key in params:
-                    kwargs[key] = str2bool(params.get(key, False))
-        except AttributeError:
-            pass
 
-        return super().get_serializer(*args, **kwargs)
+class KitBuildDetail(RetrieveUpdateDestroyAPI):
+    """API endpoint for detail view of a single KitBuild object."""
 
-    def get_queryset(self):
-        """Override the queryset method, to perform custom prefetch."""
-        queryset = super().get_queryset()
+    queryset = KitBuild.objects.all()
+    serializer_class = KitBuildSerializer
 
-        queryset = queryset.select_related(
-            'build_line',
-            'build_line__build',
-            'build_line__build__part',
-            'build_line__build__responsible',
-            'build_line__build__issued_by',
-            'build_line__build__project_code',
-            'build_line__build__part__pricing_data',
-            'build_line__bom_item',
-            'build_line__bom_item__part',
-            'build_line__bom_item__sub_part',
-            'install_into',
-            'stock_item',
-            'stock_item__location',
-            'stock_item__part',
-            'stock_item__supplier_part__part',
-            'stock_item__supplier_part__supplier',
-            'stock_item__supplier_part__manufacturer_part',
-            'stock_item__supplier_part__manufacturer_part__manufacturer',
-        ).prefetch_related('stock_item__location__tags', 'stock_item__tags')
 
-        return queryset
+class KitBuildComplete(CreateAPI):
+    """API endpoint for completing a KitBuild."""
 
-    ordering_fields = ['part', 'sku', 'quantity', 'location', 'reference', 'IPN']
+    queryset = KitBuild.objects.all()
 
-    ordering_field_aliases = {
-        'part': 'stock_item__part__name',
-        'IPN': 'stock_item__part__IPN',
-        'sku': 'stock_item__supplier_part__SKU',
-        'location': 'stock_item__location__name',
-        'reference': 'build_line__bom_item__reference',
-    }
+    def get_serializer_class(self):
+        """Return the appropriate serializer for this endpoint."""
+        return KitBuildSerializer
 
-    search_fields = [
-        'stock_item__supplier_part__SKU',
-        'stock_item__part__name',
-        'stock_item__part__IPN',
-        'build_line__bom_item__reference',
-    ]
+    def create(self, request, *args, **kwargs):
+        """Complete a KitBuild."""
+        kit = self.get_object()
+
+        if kit.is_complete:
+            raise ValidationError({'status': _('Kit has already been completed')})
+
+        kit.complete(request.user)
+
+        serializer = self.get_serializer(kit)
+        return Response(serializer.data)
+
+
+class KitItemList(ListCreateAPI):
+    """API endpoint for accessing a list of KitItem objects.
+
+    - GET: Return a list of all KitItem objects
+    - POST: Create a new KitItem object
+    """
+
+    queryset = KitItem.objects.all()
+    serializer_class = KitItemSerializer
+    filterset_class = KitItemFilter
+
+    def create(self, request, *args, **kwargs):
+        """Create a new KitItem object."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+
+class KitItemDetail(RetrieveUpdateDestroyAPI):
+    """API endpoint for detail view of a single KitItem object."""
+
+    queryset = KitItem.objects.all()
+    serializer_class = KitItemSerializer
+
+
+class KitItemAllocate(CreateAPI):
+    """API endpoint for allocating stock to a KitItem."""
+
+    queryset = KitItem.objects.all()
+
+    def get_serializer_class(self):
+        """Return the appropriate serializer for this endpoint."""
+        return KitItemSerializer
+
+    def create(self, request, *args, **kwargs):
+        """Allocate stock to a KitItem."""
+        item = self.get_object()
+
+        if item.is_allocated:
+            raise ValidationError({'stock_item': _('KitItem has already been allocated')})
+
+        stock_item_id = request.data.get('stock_item', None)
+
+        stock_item = None
+
+        if stock_item_id:
+            try:
+                stock_item = stock_models.StockItem.objects.get(pk=stock_item_id)
+            except stock_models.StockItem.DoesNotExist:
+                raise ValidationError({'stock_item': _('Stock item does not exist')})
+
+        result = item.allocate(user=request.user, stock_item=stock_item)
+
+        if not result:
+            raise ValidationError({'stock_item': _('Failed to allocate stock item')})
+
+        serializer = self.get_serializer(item)
+        return Response(serializer.data)
+
+
+class KitItemComplete(CreateAPI):
+    """API endpoint for completing a KitItem."""
+
+    queryset = KitItem.objects.all()
+
+    def get_serializer_class(self):
+        """Return the appropriate serializer for this endpoint."""
+        return KitItemSerializer
+
+    def create(self, request, *args, **kwargs):
+        """Complete a KitItem."""
+        item = self.get_object()
+
+        if item.is_complete:
+            raise ValidationError({'status': _('KitItem has already been completed')})
+
+        if not item.is_allocated:
+            raise ValidationError({'status': _('KitItem has not been allocated')})
+
+        result = item.complete_allocation(user=request.user)
+
+        if not result:
+            raise ValidationError({'status': _('Failed to complete KitItem')})
+
+        serializer = self.get_serializer(item)
+        return Response(serializer.data)
 
 
 build_api_urls = [
-    # Build lines
-    path(
-        'line/',
-        include([
-            path('<int:pk>/', BuildLineDetail.as_view(), name='api-build-line-detail'),
-            path('', BuildLineList.as_view(), name='api-build-line-list'),
-        ]),
-    ),
-    # Build Items
-    path(
-        'item/',
-        include([
-            path(
-                '<int:pk>/',
-                include([
-                    path(
-                        'metadata/',
-                        MetadataView.as_view(model=BuildItem),
-                        name='api-build-item-metadata',
-                    ),
-                    path('', BuildItemDetail.as_view(), name='api-build-item-detail'),
-                ]),
-            ),
-            path('', BuildItemList.as_view(), name='api-build-item-list'),
-        ]),
-    ),
-    # Build Detail
-    path(
-        '<int:pk>/',
-        include([
-            path('allocate/', BuildAllocate.as_view(), name='api-build-allocate'),
-            path('consume/', BuildConsume.as_view(), name='api-build-consume'),
-            path(
-                'auto-allocate/',
-                BuildAutoAllocate.as_view(),
-                name='api-build-auto-allocate',
-            ),
-            path(
-                'complete/',
-                BuildOutputComplete.as_view(),
-                name='api-build-output-complete',
-            ),
-            path(
-                'create-output/',
-                BuildOutputCreate.as_view(),
-                name='api-build-output-create',
-            ),
-            path(
-                'delete-outputs/',
-                BuildOutputDelete.as_view(),
-                name='api-build-output-delete',
-            ),
-            path(
-                'scrap-outputs/',
-                BuildOutputScrap.as_view(),
-                name='api-build-output-scrap',
-            ),
-            path('issue/', BuildIssue.as_view(), name='api-build-issue'),
-            path('hold/', BuildHold.as_view(), name='api-build-hold'),
-            path('finish/', BuildFinish.as_view(), name='api-build-finish'),
-            path('cancel/', BuildCancel.as_view(), name='api-build-cancel'),
-            path('unallocate/', BuildUnallocate.as_view(), name='api-build-unallocate'),
-            path(
-                'metadata/',
-                MetadataView.as_view(model=Build),
-                name='api-build-metadata',
-            ),
-            path('', BuildDetail.as_view(), name='api-build-detail'),
-        ]),
-    ),
-    # Build order status code information
-    path(
-        'status/',
-        StatusView.as_view(),
-        {StatusView.MODEL_REF: BuildStatus},
-        name='api-build-status-codes',
-    ),
-    # Build List
-    path('', BuildList.as_view(), name='api-build-list'),
+    # Base URL for build API endpoints
+    path('', include([
+        # Build order endpoints
+        path(r'build/', include([
+            # Build list
+            path('', build.serializers.BuildList.as_view(), name='api-build-list'),
+            
+            path(r'status/', StatusView.as_view(), {
+                'model': Build,
+                'status_model_key': 'status',
+                'custom_status_key': 'status_custom_key',
+            }, name='api-build-status'),
+            # Build detail
+            path(r'<int:pk>/', include([
+                path('', build.serializers.BuildDetail.as_view(), name='api-build-detail'),
+                path('allocate/', build.serializers.BuildAllocate.as_view(), name='api-build-allocate'),
+                path('auto-allocate/', build.serializers.BuildAutoAllocate.as_view(), name='api-build-auto-allocate'),
+                path('complete/', build.serializers.BuildComplete.as_view(), name='api-build-complete'),
+                path('cancel/', build.serializers.BuildCancel.as_view(), name='api-build-cancel'),
+                path('create-output/', build.serializers.BuildOutputCreate.as_view(), name='api-build-output-create'),
+                path('delete-output/', build.serializers.BuildOutputDelete.as_view(), name='api-build-output-delete'),
+                path('scrap-output/', build.serializers.BuildOutputScrap.as_view(), name='api-build-output-scrap'),
+                path('complete-output/', build.serializers.BuildOutputComplete.as_view(), name='api-build-output-complete'),
+                path('metadata/', MetadataView.as_view(), {'model': Build}, name='api-build-metadata'),
+                path('overdue/', build.serializers.BuildOverdue.as_view(), name='api-build-overdue'),
+                path('unallocated/', build.serializers.BuildUnallocated.as_view(), name='api-build-unallocated'),
+                path('allocated/', build.serializers.BuildAllocatedDetail.as_view(), name='api-build-allocated-detail'),
+                path('output/', build.serializers.BuildOutputDetail.as_view(), name='api-build-output'),
+            ])),
+        ])),
+
+        # Build item endpoints
+        path(r'build-item/', include([
+            path('', build.serializers.BuildItemList.as_view(), name='api-build-item-list'),
+            path('<int:pk>/', include([
+                path('', build.serializers.BuildItemDetail.as_view(), name='api-build-item-detail'),
+                path('install/', build.serializers.BuildItemInstall.as_view(), name='api-build-item-install'),
+                path('metadata/', MetadataView.as_view(), {'model': BuildItem}, name='api-build-item-metadata'),
+            ])),
+        ])),
+
+        # Build line endpoints
+        path(r'build-line/', include([
+            path('', build.serializers.BuildLineList.as_view(), name='api-build-line-list'),
+            path('<int:pk>/', include([
+                path('', build.serializers.BuildLineDetail.as_view(), name='api-build-line-detail'),
+                path('metadata/', MetadataView.as_view(), {'model': BuildLine}, name='api-build-line-metadata'),
+            ])),
+        ])),
+
+        # Kit endpoints
+        path(r'kit/', include([
+            path('', KitBuildList.as_view(), name='api-kit-list'),
+            path('<int:pk>/', include([
+                path('', KitBuildDetail.as_view(), name='api-kit-detail'),
+                path('complete/', KitBuildComplete.as_view(), name='api-kit-complete'),
+                path('metadata/', MetadataView.as_view(), {'model': KitBuild}, name='api-kit-metadata'),
+            ])),
+        ])),
+
+        # Kit item endpoints
+        path(r'kit-item/', include([
+            path('', KitItemList.as_view(), name='api-kit-item-list'),
+            path('<int:pk>/', include([
+                path('', KitItemDetail.as_view(), name='api-kit-item-detail'),
+                path('allocate/', KitItemAllocate.as_view(), name='api-kit-item-allocate'),
+                path('complete/', KitItemComplete.as_view(), name='api-kit-item-complete'),
+                path('metadata/', MetadataView.as_view(), {'model': KitItem}, name='api-kit-item-metadata'),
+            ])),
+        ])),
+
+    ])]
 ]
