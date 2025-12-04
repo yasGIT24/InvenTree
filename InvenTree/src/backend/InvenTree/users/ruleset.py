@@ -38,7 +38,7 @@ RULESET_CHOICES = [
 RULESET_NAMES = [choice[0] for choice in RULESET_CHOICES]
 
 # Permission types available for each ruleset.
-RULESET_PERMISSIONS = ['view', 'add', 'change', 'delete']
+RULESET_PERMISSIONS = ['view', 'add', 'change', 'delete', 'can_adjust_stock', 'can_count_stock', 'can_transfer_stock']
 
 RULESET_CHANGE_INHERIT = [('part', 'partparameter'), ('part', 'bomitem')]
 

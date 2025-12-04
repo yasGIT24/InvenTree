@@ -334,9 +334,13 @@ class PurchaseOrderSerializer(
             'total_price',
             'order_currency',
             'destination',
+            'cancellation_date',
+            'cancellation_reason',
+            'cancelled_by',
+            'cancelled_by_detail',
         ])
 
-        read_only_fields = ['issue_date', 'complete_date', 'creation_date']
+        read_only_fields = ['issue_date', 'complete_date', 'creation_date', 'cancellation_date', 'cancelled_by']
 
         extra_kwargs = {
             'supplier': {'required': True},
@@ -392,6 +396,10 @@ class PurchaseOrderSerializer(
     supplier_detail = CompanyBriefSerializer(
         source='supplier', many=False, read_only=True, allow_null=True
     )
+    
+    cancelled_by_detail = UserSerializer(
+        source='cancelled_by', many=False, read_only=True, allow_null=True
+    )
 
 
 class OrderAdjustSerializer(serializers.Serializer):
@@ -424,13 +432,28 @@ class PurchaseOrderHoldSerializer(OrderAdjustSerializer):
 
 class PurchaseOrderCancelSerializer(OrderAdjustSerializer):
     """Serializer for cancelling a PurchaseOrder."""
+    
+    class Meta:
+        """Metaclass options."""
+
+        fields = ['cancellation_reason']
+        
+    cancellation_reason = serializers.CharField(
+        label=_('Cancellation Reason'),
+        help_text=_('Reason for cancelling the order'),
+        required=False,
+        allow_blank=True
+    )
 
     def save(self):
         """Save the serializer to 'cancel' the order."""
         if not self.order.can_cancel:
             raise ValidationError(_('Order cannot be cancelled'))
-
-        self.order.cancel_order()
+            
+        reason = self.validated_data.get('cancellation_reason', '')
+        user = self.context.get('request', None).user if self.context.get('request', None) else None
+            
+        self.order.cancel_order(reason=reason, user=user)
 
 
 class PurchaseOrderCompleteSerializer(OrderAdjustSerializer):
@@ -1114,6 +1137,12 @@ class SalesOrderLineItemSerializer(
             'available_variant_stock',
             'building',
             'on_order',
+            # Approval workflow fields
+            'requires_approval',
+            'approved',
+            'approved_by',
+            'approved_by_detail',
+            'approved_date',
         ]
 
     def __init__(self, *args, **kwargs):
@@ -1263,6 +1292,42 @@ class SalesOrderLineItemSerializer(
 
     sale_price_currency = InvenTreeCurrencySerializer(
         help_text=_('Sale price currency')
+    )
+    
+    # Approval workflow fields
+    requires_approval = serializers.BooleanField(
+        required=False, 
+        default=False,
+        label=_('Requires Approval'),
+        help_text=_('This line item requires approval when edited')
+    )
+    
+    approved = serializers.BooleanField(
+        required=False, 
+        default=True,
+        label=_('Approved'),
+        help_text=_('This line item has been approved')
+    )
+    
+    approved_by = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        required=False, 
+        allow_null=True,
+        label=_('Approved By'),
+        help_text=_('User who approved this line item')
+    )
+    
+    approved_by_detail = UserSerializer(
+        source='approved_by', 
+        read_only=True,
+        many=False
+    )
+    
+    approved_date = serializers.DateField(
+        required=False,
+        allow_null=True,
+        label=_('Approved Date'),
+        help_text=_('Date this line item was approved')
     )
 
 

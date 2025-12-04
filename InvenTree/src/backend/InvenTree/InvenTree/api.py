@@ -23,6 +23,7 @@ from common.settings import get_global_setting
 from InvenTree import helpers
 from InvenTree.auth_overrides import registration_enabled
 from InvenTree.mixins import ListCreateAPI
+from InvenTree.permissions import InventoryActionPermission
 from InvenTree.sso import sso_registration_enabled
 from plugin.serializers import MetadataSerializer
 from users.models import ApiToken
@@ -781,3 +782,81 @@ class MetadataView(RetrieveUpdateAPI):
         """Return MetadataSerializer instance."""
         # Detect if we are currently generating the OpenAPI schema
         return MetadataSerializer(self.model, *args, **kwargs)
+
+
+class InventoryActionView(APIView):
+    """Base class for API views that perform inventory actions.
+    
+    This class provides a base for implementing API endpoints that perform inventory actions,
+    with built-in role-based access control.
+    
+    To use this class:
+    1. Inherit from InventoryActionView
+    2. Set the inventory_action_permission attribute
+    3. Implement the perform_action method
+    
+    Example:
+        class AdjustStockView(InventoryActionView):
+            inventory_action_permission = 'stock.can_adjust_stock'
+            
+            def perform_action(self, request, *args, **kwargs):
+                # Implement stock adjustment logic here
+                return Response({'status': 'success'})
+    """
+    
+    permission_classes = [permissions.IsAuthenticated, InventoryActionPermission]
+    
+    # Permission required for this inventory action
+    # Must be specified by subclasses
+    inventory_action_permission = None
+    
+    # Optional method name for object-level permission checking
+    inventory_object_permission = None
+    
+    def post(self, request, *args, **kwargs):
+        """Handle POST requests by delegating to the perform_action method."""
+        return self.perform_action(request, *args, **kwargs)
+    
+    def perform_action(self, request, *args, **kwargs):
+        """Override this method to implement the specific inventory action.
+        
+        Args:
+            request: The HTTP request
+            *args: Additional arguments
+            **kwargs: Additional keyword arguments
+            
+        Returns:
+            Response object
+        """
+        raise NotImplementedError("Subclasses must implement perform_action method")
+
+
+class InventoryModelActionMixin:
+    """Mixin class for ModelViewSet classes that perform inventory actions.
+    
+    This mixin can be used with ModelViewSet classes to add inventory action
+    methods with proper permission checking.
+    
+    Example usage:
+    
+        class StockViewSet(InventoryModelActionMixin, ModelViewSet):
+            queryset = StockItem.objects.all()
+            serializer_class = StockItemSerializer
+            
+            @action(detail=True, methods=['post'])
+            @inventory_permission('stock.can_adjust_stock')
+            def adjust(self, request, pk=None):
+                # Implement stock adjustment logic
+                return Response({'status': 'success'})
+    """
+    
+    def get_permissions(self):
+        """Return the permissions that should be enforced.
+        
+        If the action has an inventory_action_permission attribute,
+        use the InventoryActionPermission class.
+        """
+        if hasattr(self, self.action) and hasattr(getattr(self, self.action), 'inventory_action_permission'):
+            return [permissions.IsAuthenticated(), InventoryActionPermission()]
+        
+        return super().get_permissions()

@@ -21,6 +21,7 @@ import common.models
 import common.settings
 import InvenTree.helpers
 import InvenTree.permissions
+import stock.actions
 import stock.serializers as StockSerializers
 from build.models import Build
 from build.serializers import BuildSerializer
@@ -31,6 +32,7 @@ from generic.states.api import StatusView
 from InvenTree.api import (
     BulkCreateMixin,
     BulkUpdateMixin,
+    InventoryActionView,
     ListCreateDestroyAPIView,
     MetadataView,
 )
@@ -1617,6 +1619,13 @@ stock_api_urls = [
     path('assign/', StockAssign.as_view(), name='api-stock-assign'),
     path('merge/', StockMerge.as_view(), name='api-stock-merge'),
     path('change_status/', StockChangeStatus.as_view(), name='api-stock-change-status'),
+    
+    # Role-based inventory action endpoints
+    path('rbac/', include([
+        path('adjust/', stock.actions.StockAdjustView.as_view(), name='api-stock-rbac-adjust'),
+        path('count/', stock.actions.StockCountView.as_view(), name='api-stock-rbac-count'),
+        path('transfer/', stock.actions.StockTransferView.as_view(), name='api-stock-rbac-transfer'),
+    ])),
     # StockItemTestResult API endpoints
     path(
         'test/',
