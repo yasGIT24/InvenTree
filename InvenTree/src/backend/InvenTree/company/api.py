@@ -4,6 +4,9 @@ from django.db.models import Q
 from django.urls import include, path
 from django.utils.translation import gettext_lazy as _
 
+from rest_framework import status
+from rest_framework.response import Response
+
 from django_filters import rest_framework as rest_filters
 
 import part.models
@@ -21,6 +24,7 @@ from .models import (
     ManufacturerPartParameter,
     SupplierPart,
     SupplierPriceBreak,
+    VendorCategory,
 )
 from .serializers import (
     AddressSerializer,
@@ -30,7 +34,68 @@ from .serializers import (
     ManufacturerPartSerializer,
     SupplierPartSerializer,
     SupplierPriceBreakSerializer,
+    VendorCategorySerializer,
 )
+
+
+class VendorCategoryList(DataExportViewMixin, ListCreateAPI):
+    """API endpoint for accessing a list of VendorCategory objects.
+    
+    - GET: Return list of vendor categories
+    - POST: Create a new vendor category
+    """
+    
+    queryset = VendorCategory.objects.all()
+    serializer_class = VendorCategorySerializer
+    
+    filter_backends = SEARCH_ORDER_FILTER
+    
+    filterset_fields = ['name', 'structural', 'parent']
+    
+    search_fields = ['name', 'description']
+    
+    ordering_fields = ['name']
+    
+    ordering = 'name'
+
+
+class VendorCategoryDetail(RetrieveUpdateDestroyAPI):
+    """API endpoint for detail view of a VendorCategory object.
+    
+    - GET: Return a single VendorCategory object
+    - PATCH: Update a VendorCategory object
+    - DELETE: Remove a VendorCategory object
+    """
+    
+    queryset = VendorCategory.objects.all()
+    serializer_class = VendorCategorySerializer
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation]
+    def destroy(self, request, *args, **kwargs):
+        """Custom delete method to ensure that vendor category being used cannot be deleted.
+        
+        Validation rules:
+        1. Category cannot be deleted if it has companies assigned to it
+        2. Category cannot be deleted if it has child categories
+        """
+        category = self.get_object()
+        
+        # Import here to avoid circular imports
+        from company.validators import validate_vendor_category_in_use
+        
+        # Check if the category is in use
+        in_use, message = validate_vendor_category_in_use(category)
+        
+        if in_use:
+            return Response(
+                {
+                    'error': message
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        return super().destroy(request, *args, **kwargs)
+    # [END AGENT GENERATED CODE]
 
 
 class CompanyList(DataExportViewMixin, ListCreateAPI):
@@ -551,6 +616,13 @@ supplier_part_api_urls = [
 
 
 company_api_urls = [
+    path(
+        'category/',
+        include([
+            path('<int:pk>/', VendorCategoryDetail.as_view(), name='api-vendor-category-detail'),
+            path('', VendorCategoryList.as_view(), name='api-vendor-category-list'),
+        ]),
+    ),
     path('part/manufacturer/', include(manufacturer_part_api_urls)),
     path('part/', include(supplier_part_api_urls)),
     # Supplier price breaks

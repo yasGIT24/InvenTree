@@ -48,6 +48,8 @@ from InvenTree.status_codes import (
     StockStatus,
     StockStatusGroups,
 )
+
+from order.status_codes import PurchaseOrderStatus
 from part import models as PartModels
 from plugin.events import trigger_event
 from stock.events import StockEvents
@@ -523,6 +525,8 @@ class StockItem(
 
     # A Query filter which will be reused in multiple places to determine if a StockItem is actually "in stock"
     # See also: StockItem.in_stock() method
+    # [AGENT GENERATED CODE - REQUIREMENT:Track and Display Cancelled Supplier POs in Inventory]
+    # Added filter to exclude stock items from cancelled purchase orders
     IN_STOCK_FILTER = Q(
         quantity__gt=0,
         sales_order=None,
@@ -531,7 +535,8 @@ class StockItem(
         consumed_by=None,
         is_building=False,
         status__in=StockStatusGroups.AVAILABLE_CODES,
-    )
+    ) & (Q(purchase_order__isnull=True) | ~Q(purchase_order__status=PurchaseOrderStatus.CANCELLED.value))
+    # [END AGENT GENERATED CODE]
 
     # A query filter which can be used to filter StockItem objects which have expired
     EXPIRED_FILTER = (
@@ -1737,6 +1742,12 @@ class StockItem(
 
         if check_in_production and self.is_building:
             return False
+        
+        # [AGENT GENERATED CODE - REQUIREMENT:Track and Display Cancelled Supplier POs in Inventory]
+        # Check if this item came from a cancelled purchase order
+        if self.purchase_order and self.purchase_order.status == PurchaseOrderStatus.CANCELLED.value:
+            return False
+        # [END AGENT GENERATED CODE]
 
         return all([
             self.sales_order is None,  # Not assigned to a SalesOrder

@@ -36,6 +36,7 @@ from .models import (
     ManufacturerPartParameter,
     SupplierPart,
     SupplierPriceBreak,
+    VendorCategory,
 )
 
 
@@ -109,6 +110,39 @@ class AddressBriefSerializer(InvenTreeModelSerializer):
 
 
 @register_importer()
+class VendorCategorySerializer(DataImportExportSerializerMixin, InvenTreeModelSerializer):
+    """Serializer for VendorCategory."""
+    
+    class Meta:
+        """Metaclass defines serializer fields."""
+        
+        model = VendorCategory
+        fields = [
+            'pk',
+            'name',
+            'description',
+            'default_keywords',
+            'parent',
+            'pathstring',
+            'level',
+            'structural',
+            'icon',
+        ]
+    
+    def validate_name(self, value):
+        """Validate that the category name is unique at this level."""
+        from company.validators import validate_vendor_category_name
+        
+        # Get parent category instance
+        parent = self.initial_data.get('parent', None)
+        
+        # Make sure the category name is valid
+        validate_vendor_category_name(value, parent=parent)
+        
+        return value
+
+
+@register_importer()
 class CompanySerializer(
     DataImportExportSerializerMixin,
     NotesFieldMixin,
@@ -149,6 +183,7 @@ class CompanySerializer(
             'address_count',
             'primary_address',
             'tax_id',
+            'category',
         ]
 
     @staticmethod
@@ -208,6 +243,18 @@ class CompanySerializer(
     currency = InvenTreeCurrencySerializer(
         help_text=_('Default currency used for this supplier'), required=True
     )
+    
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=VendorCategory.objects.all(),
+        allow_null=True,
+        required=False,
+    )
+    
+    def validate_category(self, value):
+        """Validate that the category is not structural."""
+        if value and value.structural:
+            raise serializers.ValidationError(_('Cannot assign company to a structural category'))
+        return value
 
     def save(self):
         """Save the Company instance."""

@@ -12,6 +12,7 @@ from .models import (
     ManufacturerPartParameter,
     SupplierPart,
     SupplierPriceBreak,
+    VendorCategory,
 )
 
 
@@ -96,3 +97,16 @@ class ContactAdmin(admin.ModelAdmin):
     search_fields = ['company', 'name', 'email']
 
     autocomplete_fields = ['company']
+
+
+@admin.register(VendorCategory)
+class VendorCategoryAdmin(admin.ModelAdmin):
+    """Admin class for the VendorCategory model."""
+
+    list_display = ('name', 'description', 'pathstring', 'level', 'structural')
+
+    search_fields = ['name', 'description']
+    
+    list_filter = ['level', 'structural']
+
+    autocomplete_fields = ['parent']

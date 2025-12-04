@@ -101,10 +101,10 @@ def annotate_on_order_quantity(reference: str = '') -> QuerySet:
 
     Note that in addition to the 'quantity' on order, we must also take into account 'pack_quantity'.
     """
-    # Filter only 'active' purchase orders
+    # Filter only valid purchase orders for inventory projection
     # Filter only line with outstanding quantity
     order_filter = Q(
-        order__status__in=PurchaseOrderStatusGroups.OPEN, quantity__gt=F('received')
+        order__status__in=PurchaseOrderStatusGroups.VALID_INVENTORY, quantity__gt=F('received')
     )
 
     return Greatest(

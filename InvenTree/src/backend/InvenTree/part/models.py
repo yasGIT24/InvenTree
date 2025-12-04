@@ -2550,9 +2550,9 @@ class Part(
 
         # Iterate through all supplier parts
         for sp in self.supplier_parts.all():
-            # Look at any incomplete line item for open orders
+            # Look at any incomplete line item for orders valid for inventory projection
             lines = sp.purchase_order_line_items.filter(
-                order__status__in=PurchaseOrderStatusGroups.OPEN,
+                order__status__in=PurchaseOrderStatusGroups.VALID_INVENTORY,
                 quantity__gt=F('received'),
             )
 

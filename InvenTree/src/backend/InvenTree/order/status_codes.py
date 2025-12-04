@@ -34,6 +34,19 @@ class PurchaseOrderStatusGroups:
         PurchaseOrderStatus.LOST.value,
         PurchaseOrderStatus.RETURNED.value,
     ]
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:Track and Display Cancelled Supplier POs in Inventory]
+    # Valid orders - used for inventory projection
+    # Only PENDING, PLACED, ON_HOLD, and COMPLETE orders should be considered
+    # for inventory projection calculations. Cancelled, lost, or returned orders 
+    # should not be counted towards available inventory.
+    VALID_INVENTORY = [
+        PurchaseOrderStatus.PENDING.value,
+        PurchaseOrderStatus.ON_HOLD.value,
+        PurchaseOrderStatus.PLACED.value,
+        PurchaseOrderStatus.COMPLETE.value,
+    ]
+    # [END AGENT GENERATED CODE]
 
     COMPLETE = [PurchaseOrderStatus.COMPLETE.value]
 

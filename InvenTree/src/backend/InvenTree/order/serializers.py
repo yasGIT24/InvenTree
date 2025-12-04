@@ -603,6 +603,15 @@ class PurchaseOrderLineItemSerializer(
         if quantity <= 0:
             raise ValidationError(_('Quantity must be greater than zero'))
 
+        # If this is an update to an existing line item, check for inventory constraints
+        if self.instance and hasattr(self.instance, 'order'):
+            # Only validate against open orders
+            if self.instance.order.status in PurchaseOrderStatusGroups.OPEN:
+                # Check if the quantity has been decreased below the received amount
+                received = getattr(self.instance, 'received', 0)
+                if quantity < received:
+                    raise ValidationError(_('Quantity cannot be less than received quantity'))
+                
         return quantity
 
     def validate_purchase_order(self, purchase_order):
@@ -693,6 +702,7 @@ class PurchaseOrderLineItemSerializer(
         - Ensure the supplier_part field is supplied
         - Ensure the purchase_order field is supplied
         - Ensure that the supplier_part and supplier references match
+        - Additional validation for line item editing
         """
         data = super().validate(data)
 
@@ -714,6 +724,20 @@ class PurchaseOrderLineItemSerializer(
                 'part': _('Supplier must match purchase order'),
                 'order': _('Purchase order must match supplier'),
             })
+        
+        # For existing line items being updated, perform additional validation
+        if self.instance:
+            # Check if the order is in a state where editing is allowed
+            if purchase_order.status not in PurchaseOrderStatusGroups.OPEN:
+                raise ValidationError({
+                    'order': _('Order cannot be edited in its current state')
+                })
+                
+            # Check if the purchase order is cancelled
+            if purchase_order.status == PurchaseOrderStatus.CANCELLED.value:
+                raise ValidationError({
+                    'order': _('Cannot edit line items for cancelled orders')
+                })
 
         return data
 
@@ -1254,6 +1278,23 @@ class SalesOrderLineItemSerializer(
     building = serializers.FloatField(label=_('In Production'), read_only=True)
 
     quantity = InvenTreeDecimalField()
+    
+    def validate_quantity(self, quantity):
+        """Validate that the quantity field makes sense."""
+        if quantity < 0:
+            raise ValidationError(_('Quantity must be greater than or equal to zero'))
+        
+        # If this is an update to an existing line item, perform additional validation
+        if self.instance and hasattr(self.instance, 'order'):
+            # Only validate against open orders
+            if self.instance.order.status in SalesOrderStatusGroups.OPEN:
+                # Cannot reduce quantity below shipped amount
+                shipped = getattr(self.instance, 'shipped', 0)
+                
+                if quantity < shipped:
+                    raise ValidationError(_('Quantity cannot be less than shipped quantity'))
+        
+        return quantity
 
     allocated = serializers.FloatField(read_only=True)
 
@@ -1264,6 +1305,25 @@ class SalesOrderLineItemSerializer(
     sale_price_currency = InvenTreeCurrencySerializer(
         help_text=_('Sale price currency')
     )
+    
+    def validate(self, data):
+        """Custom validation for the serializer.
+        
+        Performs additional validation for line item editing.
+        """
+        data = super().validate(data)
+        
+        # For existing line items being updated, perform additional validation
+        if self.instance and hasattr(self.instance, 'order'):
+            order = self.instance.order
+            
+            # Check if the order is in a state where editing is allowed
+            if order.status not in SalesOrderStatusGroups.OPEN:
+                raise ValidationError({
+                    'order': _('Order cannot be edited in its current state')
+                })
+        
+        return data
 
 
 @register_importer()

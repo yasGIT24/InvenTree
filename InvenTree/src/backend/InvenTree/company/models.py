@@ -16,6 +16,8 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.translation import pgettext_lazy as __
 
 from moneyed import CURRENCIES
+from mptt.managers import TreeManager
+from mptt.models import TreeForeignKey
 from stdimage.models import StdImageField
 from taggit.managers import TaggableManager
 
@@ -28,8 +30,166 @@ import InvenTree.ready
 import InvenTree.validators
 import report.mixins
 from common.currency import currency_code_default
+from common.icons import validate_icon
+from common.settings import get_global_setting
 from InvenTree.fields import InvenTreeURLField, RoundingDecimalField
 from order.status_codes import PurchaseOrderStatusGroups
+
+
+class VendorCategory(
+    InvenTree.models.PluginValidationMixin,
+    InvenTree.models.MetadataMixin,
+    InvenTree.models.PathStringMixin,
+    InvenTree.models.InvenTreeTree,
+):
+    """VendorCategory provides hierarchical organization of Company objects.
+
+    Attributes:
+        name: Name of this category
+        parent: Parent category
+        description: Additional information about this category
+    """
+
+    ITEM_PARENT_KEY = 'category'
+
+    EXTRA_PATH_FIELDS = ['icon']
+
+    class Meta:
+        """Metaclass defines extra model properties."""
+
+        verbose_name = _('Vendor Category')
+        verbose_name_plural = _('Vendor Categories')
+
+    def delete(self, *args, **kwargs):
+        """Custom model deletion routine, which updates any child categories or parts.
+
+        This must be handled within a transaction.atomic(), otherwise the tree structure is damaged
+        """
+        super().delete(
+            delete_children=kwargs.get('delete_child_categories', False),
+            delete_items=kwargs.get('delete_companies', False),
+        )
+
+    structural = models.BooleanField(
+        default=False,
+        verbose_name=_('Structural'),
+        help_text=_(
+            'Companies may not be directly assigned to a structural category, '
+            'but may be assigned to child categories.'
+        ),
+    )
+
+    default_keywords = models.CharField(
+        null=True,
+        blank=True,
+        max_length=250,
+        verbose_name=_('Default keywords'),
+        help_text=_('Default keywords for vendors in this category'),
+    )
+
+    _icon = models.CharField(
+        blank=True,
+        null=True,
+        max_length=100,
+        verbose_name=_('Icon'),
+        help_text=_('Icon (optional)'),
+        validators=[validate_icon],
+        db_column='icon',
+    )
+
+    @property
+    def icon(self):
+        """Return the icon associated with this VendorCategory or the default icon."""
+        if self._icon:
+            return self._icon
+
+        if default_icon := get_global_setting('VENDOR_CATEGORY_DEFAULT_ICON', cache=True):
+            return default_icon
+
+        return ''
+
+    @icon.setter
+    def icon(self, value):
+        """Setter for icon field."""
+        default_icon = get_global_setting('VENDOR_CATEGORY_DEFAULT_ICON', cache=True)
+
+        # if icon is not defined previously and new value is default icon, do not save it
+        if not self._icon and value == default_icon:
+            return
+
+        self._icon = value
+
+    @staticmethod
+    def get_api_url():
+        """Return the API url associated with the VendorCategory model."""
+        return reverse('api-vendor-category-list')
+
+    def get_absolute_url(self):
+        """Return the web URL associated with the detail view for this VendorCategory instance."""
+        return InvenTree.helpers.pui_url(f'/company/category/{self.id}')
+
+    def clean(self):
+        """Custom clean action for the VendorCategory model.
+
+        Ensure that the structural parameter cannot get set if companies already assigned to the category
+        """
+        if self.pk and self.structural and self.companycount(False, False) > 0:
+            raise ValidationError(
+                _(
+                    'You cannot make this vendor category structural because some companies '
+                    'are already assigned to it!'
+                )
+            )
+        super().clean()
+
+    def get_companies(self, cascade=True) -> set[Company]:
+        """Return a queryset for all companies under this category.
+
+        Args:
+            cascade (bool, optional): If True, also look under subcategories. Defaults to True.
+
+        Returns:
+            set[Company]: All matching companies
+        """
+        if cascade:
+            """Select any companies which exist in this category or any child categories."""
+            queryset = Company.objects.filter(
+                category__in=self.getUniqueChildren(include_self=True)
+            )
+        else:
+            queryset = Company.objects.filter(category=self.pk)
+
+        return queryset
+
+    @property
+    def item_count(self):
+        """Return the number of companies contained in this VendorCategory."""
+        return self.companycount()
+
+    def get_items(self, cascade=False):
+        """Return a queryset containing the companies which exist in this category."""
+        return self.get_companies(cascade=cascade)
+
+    def companycount(self, cascade=True, active=False):
+        """Return the total company count under this category (including children of child categories)."""
+        query = self.get_companies(cascade=cascade)
+
+        if active:
+            query = query.filter(active=True)
+
+        return query.count()
+
+    @classmethod
+    def get_parent_categories(cls):
+        """Return tuple list of parent (root) categories."""
+        # Get root nodes
+        root_categories = cls.objects.filter(level=0)
+
+        parent_categories = []
+        for category in root_categories:
+            parent_categories.append((category.id, category.name))
+
+        return parent_categories
 
 
 def rename_company_image(instance, filename):
@@ -230,6 +390,16 @@ class Company(
         blank=True,
         verbose_name=_('Tax ID'),
         help_text=_('Company Tax ID'),
+    )
+    
+    category = TreeForeignKey(
+        VendorCategory,
+        related_name='companies',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        verbose_name=_('Vendor Category'),
+        help_text=_('Select vendor category'),
     )
 
     @property
@@ -1000,13 +1170,23 @@ class SupplierPart(
         return self.purchase_order_line_items.prefetch_related('order').filter(
             order__status__in=PurchaseOrderStatusGroups.OPEN
         )
+        
+    def orders_for_inventory_projection(self):
+        """Return a database query for PurchaseOrder line items for this SupplierPart, limited to purchase orders that are valid for inventory projection."""
+        return self.purchase_order_line_items.prefetch_related('order').filter(
+            order__status__in=PurchaseOrderStatusGroups.VALID_INVENTORY
+        )
 
     def on_order(self):
         """Return the total quantity of items currently on order.
 
         Subtract partially received stock as appropriate
+        Only consider orders that are valid for inventory projection
         """
-        totals = self.open_orders().aggregate(Sum('quantity'), Sum('received'))
+        # Use orders valid for inventory projection
+        totals = self.orders_for_inventory_projection().aggregate(
+            Sum('quantity'), Sum('received')
+        )
 
         # Quantity on order
         q = totals.get('quantity__sum', 0)

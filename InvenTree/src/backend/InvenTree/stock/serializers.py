@@ -357,6 +357,8 @@ class StockItemSerializer(
             'parent',
             'purchase_order',
             'purchase_order_reference',
+            'purchase_order_status',
+            'purchase_order_status_text',
             'sales_order',
             'sales_order_reference',
             'status',
@@ -668,6 +670,14 @@ class StockItemSerializer(
 
     purchase_order_reference = serializers.CharField(
         source='purchase_order.reference', read_only=True, allow_null=True
+    )
+    
+    purchase_order_status = serializers.IntegerField(
+        source='purchase_order.status', read_only=True, allow_null=True
+    )
+    
+    purchase_order_status_text = serializers.CharField(
+        source='purchase_order.get_status_display', read_only=True, allow_null=True
     )
 
     sales_order_reference = serializers.CharField(

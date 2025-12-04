@@ -11,6 +11,7 @@ class RuleSetEnum(StringEnum):
 
     ADMIN = 'admin'
     PART_CATEGORY = 'part_category'
+    VENDOR_CATEGORY = 'vendor_category'
     PART = 'part'
     STOCK_LOCATION = 'stock_location'
     STOCK = 'stock'
@@ -25,6 +26,7 @@ class RuleSetEnum(StringEnum):
 RULESET_CHOICES = [
     (RuleSetEnum.ADMIN, _('Admin')),
     (RuleSetEnum.PART_CATEGORY, _('Part Categories')),
+    (RuleSetEnum.VENDOR_CATEGORY, _('Vendor Categories')),
     (RuleSetEnum.PART, _('Parts')),
     (RuleSetEnum.STOCK_LOCATION, _('Stock Locations')),
     (RuleSetEnum.STOCK, _('Stock Items')),
@@ -97,6 +99,9 @@ def get_ruleset_models() -> dict:
             'part_partcategory',
             'part_partcategoryparametertemplate',
             'part_partcategorystar',
+        ],
+        RuleSetEnum.VENDOR_CATEGORY: [
+            'company_vendorcategory',
         ],
         RuleSetEnum.PART: [
             'part_part',
