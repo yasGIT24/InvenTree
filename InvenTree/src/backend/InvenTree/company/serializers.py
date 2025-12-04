@@ -31,12 +31,70 @@ from InvenTree.serializers import (
 from .models import (
     Address,
     Company,
+    CompanyCategory,
     Contact,
     ManufacturerPart,
     ManufacturerPartParameter,
     SupplierPart,
     SupplierPriceBreak,
 )
+
+# [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation, Bulk Upload Vendor Categories with Validation]
+class CompanyCategorySerializer(InvenTreeModelSerializer):
+    """Serializer for the CompanyCategory model."""
+
+    class Meta:
+        """Metaclass options."""
+        
+        model = CompanyCategory
+        fields = [
+            'pk',
+            'name',
+            'description',
+            'parent',
+            'pathstring',
+            'structural',
+            'icon',
+            'company_count',
+            'metadata',
+            'level',
+        ]
+        
+        read_only_fields = ['company_count', 'pathstring']
+        
+    company_count = serializers.IntegerField(read_only=True)
+    
+    @staticmethod
+    def annotate_queryset(queryset):
+        """Annotate the company category queryset with the number of companies."""
+        
+        queryset = queryset.annotate(
+            company_count=SubqueryCount('companies')
+        )
+        
+        return queryset
+    
+    def get_company_count(self, obj):
+        """Return the number of companies associated with this category."""
+        
+        return obj.company_count(cascade=True)
+
+
+class CompanyCategoryBriefSerializer(InvenTreeModelSerializer):
+    """Brief serializer for the CompanyCategory model."""
+
+    class Meta:
+        """Metaclass options."""
+        
+        model = CompanyCategory
+        fields = [
+            'pk',
+            'name',
+            'description',
+            'icon',
+            'pathstring',
+        ]
+# [/AGENT GENERATED CODE]
 
 
 class CompanyBriefSerializer(InvenTreeModelSerializer):
@@ -149,6 +207,10 @@ class CompanySerializer(
             'address_count',
             'primary_address',
             'tax_id',
+            # [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation, Bulk Upload Vendor Categories with Validation]
+            'category',
+            'category_detail',
+            # [/AGENT GENERATED CODE]
         ]
 
     @staticmethod
@@ -208,6 +270,10 @@ class CompanySerializer(
     currency = InvenTreeCurrencySerializer(
         help_text=_('Default currency used for this supplier'), required=True
     )
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation, Bulk Upload Vendor Categories with Validation]
+    category_detail = CompanyCategoryBriefSerializer(source='category', many=False, read_only=True, allow_null=True)
+    # [/AGENT GENERATED CODE]
 
     def save(self):
         """Save the Company instance."""

@@ -18,9 +18,11 @@ from django.utils.translation import pgettext_lazy as __
 from moneyed import CURRENCIES
 from stdimage.models import StdImageField
 from taggit.managers import TaggableManager
+from mptt.models import TreeForeignKey
 
 import common.currency
 import common.models
+import common.icons
 import InvenTree.conversion
 import InvenTree.helpers
 import InvenTree.models
@@ -53,6 +55,101 @@ def rename_company_image(instance, filename):
 
     return os.path.join(base, fn)
 
+
+# [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation, Bulk Upload Vendor Categories with Validation]
+class CompanyCategory(
+    InvenTree.models.MetadataMixin,
+    InvenTree.models.PathStringMixin,
+    InvenTree.models.InvenTreeTree,
+):
+    """Model for organizing companies into hierarchical categories.
+
+    Attributes:
+        name: The name of this category
+        description: Optional description
+        parent: Reference to the parent category (or None if this is a top-level category)
+        structural: If true, companies cannot be directly assigned to this category
+        icon: Icon (optional) for visual display
+    """
+
+    class Meta:
+        """Metaclass defines extra model options."""
+        verbose_name = _('Company Category')
+        verbose_name_plural = _('Company Categories')
+        ordering = ['name']
+
+    ITEM_PARENT_KEY = 'category'
+
+    @staticmethod
+    def get_api_url():
+        """Return the API URL associated with the CompanyCategory model."""
+        return reverse('api-company-category-list')
+
+    structural = models.BooleanField(
+        default=False,
+        verbose_name=_('Structural'),
+        help_text=_('If this category is structural, companies cannot be directly assigned to it')
+    )
+
+    icon = models.CharField(
+        blank=True, null=True,
+        max_length=100,
+        verbose_name=_('Icon'),
+        help_text=_('Icon (optional)'),
+        validators=[common.icons.validate_icon],
+    )
+
+    def clean(self):
+        """Custom clean action for CompanyCategory model.
+        
+        Ensure that the structural parameter cannot be set if companies
+        already assigned to the category
+        """
+        super().clean()
+        
+        if self.pk and self.structural and self.company_count(False, False) > 0:
+            raise ValidationError({
+                'structural': _('You cannot make this company category structural because companies are already assigned to it')
+            })
+
+    def delete(self, *args, **kwargs):
+        """Custom model deletion routine, which validates for companies."""
+        # Count assigned companies
+        companies = self.company_count(cascade=True)
+        
+        if companies > 0:
+            # If there are companies assigned, cannot delete
+            raise ValidationError({
+                'category': _(f"This category cannot be deleted as it has {companies} assigned companies")
+            })
+
+        # If we get to this point, category can be deleted
+        super().delete(*args, **kwargs)
+
+    def get_companies(self, cascade=True):
+        """Return a queryset for all companies assigned to this category."""
+        if cascade:
+            query = Company.objects.filter(
+                category__in=self.getUniqueChildren(include_self=True)
+            )
+        else:
+            query = Company.objects.filter(category=self.pk)
+            
+        return query
+    
+    def get_items(self, cascade=False):
+        """Return a queryset containing the companies which exist in this category."""
+        return self.get_companies(cascade=cascade)
+
+    def company_count(self, cascade=True, active=False):
+        """Return the total company count under this category."""
+        query = self.get_companies(cascade=cascade)
+        
+        if active:
+            query = query.filter(active=True)
+            
+        return query.count()
+# [/AGENT GENERATED CODE]
 
 class CompanyReportContext(report.mixins.BaseReportContext):
     """Report context for the Company model.
@@ -231,6 +328,18 @@ class Company(
         verbose_name=_('Tax ID'),
         help_text=_('Company Tax ID'),
     )
+
+    # [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation, Bulk Upload Vendor Categories with Validation]
+    category = TreeForeignKey(
+        CompanyCategory,
+        related_name='companies',
+        null=True,
+        blank=True,
+        on_delete=models.DO_NOTHING,
+        verbose_name=_('Category'),
+        help_text=_('Company category'),
+    )
+    # [/AGENT GENERATED CODE]
 
     @property
     def address(self):

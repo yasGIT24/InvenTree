@@ -3,10 +3,12 @@
 from django.contrib import admin
 
 import company.serializers
+from admin_classes import InvenTreeTreeAdmin
 
 from .models import (
     Address,
     Company,
+    CompanyCategory,
     Contact,
     ManufacturerPart,
     ManufacturerPartParameter,
@@ -96,3 +98,14 @@ class ContactAdmin(admin.ModelAdmin):
     search_fields = ['company', 'name', 'email']
 
     autocomplete_fields = ['company']
+
+
+# [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation, Bulk Upload Vendor Categories with Validation]
+@admin.register(CompanyCategory)
+class CompanyCategoryAdmin(InvenTreeTreeAdmin):
+    """Admin class for the CompanyCategory model."""
+    
+    list_display = ('name', 'pathstring', 'structural')
+    
+    search_fields = ('name', 'description')
+# [/AGENT GENERATED CODE]

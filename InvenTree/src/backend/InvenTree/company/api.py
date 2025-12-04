@@ -16,6 +16,7 @@ from InvenTree.mixins import ListCreateAPI, RetrieveUpdateDestroyAPI
 from .models import (
     Address,
     Company,
+    CompanyCategory,
     Contact,
     ManufacturerPart,
     ManufacturerPartParameter,
@@ -25,12 +26,101 @@ from .models import (
 from .serializers import (
     AddressSerializer,
     CompanySerializer,
+    CompanyCategorySerializer,
+    CompanyCategoryBriefSerializer,
     ContactSerializer,
     ManufacturerPartParameterSerializer,
     ManufacturerPartSerializer,
     SupplierPartSerializer,
     SupplierPriceBreakSerializer,
 )
+
+# [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation, Bulk Upload Vendor Categories with Validation]
+class CompanyCategoryList(DataExportViewMixin, ListCreateAPI):
+    """API endpoint for accessing a list of CompanyCategory objects.
+    
+    Provides two methods:
+    
+    - GET: Return list of objects
+    - POST: Create a new CompanyCategory object
+    """
+    
+    serializer_class = CompanyCategorySerializer
+    queryset = CompanyCategory.objects.all()
+    
+    def get_queryset(self):
+        """Return annotated queryset for the category list endpoint."""
+        queryset = super().get_queryset()
+        queryset = CompanyCategorySerializer.annotate_queryset(queryset)
+        
+        params = self.request.query_params
+        
+        # Filter by "structural" attribute
+        structural = params.get('structural', None)
+        if structural is not None:
+            structural = str2bool(structural)
+            queryset = queryset.filter(structural=structural)
+            
+        # Filter by "cascade" attribute - whether to include subcategories or not
+        cascade = str2bool(params.get('cascade', True))
+        
+        # Filter by "parent" attribute
+        parent = params.get('parent', None)
+        
+        if parent is not None:
+            if parent.lower() == 'null':
+                # Return only top-level categories (no parent)
+                queryset = queryset.filter(parent=None)
+            elif parent.lower() == 'all':
+                # Return all categories (don't filter by parent)
+                pass
+            else:
+                try:
+                    # Look up the parent category
+                    parent_category = CompanyCategory.objects.get(pk=parent)
+                    
+                    if cascade:
+                        # Include subcategories
+                        queryset = queryset.filter(parent__in=parent_category.get_descendants(include_self=True))
+                    else:
+                        # Only direct children of the specified category
+                        queryset = queryset.filter(parent=parent)
+                except (ValueError, CompanyCategory.DoesNotExist):
+                    pass
+        
+        return queryset
+
+
+class CompanyCategoryDetail(RetrieveUpdateDestroyAPI):
+    """API endpoint for a single CompanyCategory object.
+    
+    Provides three methods:
+    
+    - GET: Return a single category object
+    - PATCH: Update a category object
+    - DELETE: Delete a category object
+    """
+    
+    serializer_class = CompanyCategorySerializer
+    queryset = CompanyCategory.objects.all()
+    
+    def get_queryset(self):
+        """Return annotated queryset for the category detail endpoint."""
+        queryset = super().get_queryset()
+        queryset = CompanyCategorySerializer.annotate_queryset(queryset)
+        return queryset
+    
+    def get_serializer_context(self):
+        """Pass extra context to the serializer."""
+        ctx = super().get_serializer_context()
+        
+        try:
+            ctx['category_detail'] = True
+        except (ValueError, CompanyCategory.DoesNotExist):
+            pass
+        
+        return ctx
+# [/AGENT GENERATED CODE]
 
 
 class CompanyList(DataExportViewMixin, ListCreateAPI):
@@ -48,80 +138,157 @@ class CompanyList(DataExportViewMixin, ListCreateAPI):
     def get_queryset(self):
         """Return annotated queryset for the company list endpoint."""
         queryset = super().get_queryset()
-        return CompanySerializer.annotate_queryset(queryset)
 
-    filter_backends = SEARCH_ORDER_FILTER
+        queryset = CompanySerializer.annotate_queryset(queryset)
 
-    filterset_fields = [
-        'is_customer',
-        'is_manufacturer',
-        'is_supplier',
-        'name',
-        'active',
-    ]
+        params = self.request.query_params
 
-    search_fields = ['name', 'description', 'website', 'tax_id']
+        is_supplier = params.get('is_supplier', None)
+        is_manufacturer = params.get('is_manufacturer', None)
+        is_customer = params.get('is_customer', None)
+        active = params.get('active', None)
 
-    ordering_fields = ['active', 'name', 'parts_supplied', 'parts_manufactured']
+        # Filter by 'active' status
+        if active is not None:
+            active = str2bool(active)
+            queryset = queryset.filter(active=active)
 
-    ordering = 'name'
+        # Filter by company type
+        if is_supplier is not None:
+            is_supplier = str2bool(is_supplier)
+            queryset = queryset.filter(is_supplier=is_supplier)
+
+        if is_manufacturer is not None:
+            is_manufacturer = str2bool(is_manufacturer)
+            queryset = queryset.filter(is_manufacturer=is_manufacturer)
+
+        if is_customer is not None:
+            is_customer = str2bool(is_customer)
+            queryset = queryset.filter(is_customer=is_customer)
+
+        # Filter by primary_part
+        part = params.get('part', None)
+
+        if part is not None:
+            try:
+                part = part.models.Part.objects.get(pk=part)
+                queryset = queryset.filter(
+                    Q(manufactured_parts__part=part) | Q(supplied_parts__part=part)
+                ).distinct()
+            except (ValueError, part.models.Part.DoesNotExist):
+                pass
+
+        # Filter by 'assigned' parts, i.e. parts which are already linked to this supplier
+        assigned = params.get('assigned', None)
+
+        if assigned is not None:
+            assigned = str2bool(assigned)
+
+            # Get list of valid part suppliers
+            ps_list = SupplierPart.objects.filter(supplier__in=queryset)
+
+            # Extract set of supplier IDs for these parts
+            sp_list = [ps.supplier.id for ps in ps_list]
+
+            if assigned:
+                # Return companies which appear in this list
+                queryset = queryset.filter(id__in=sp_list)
+            else:
+                # Return companies which do not appear in this list
+                queryset = queryset.exclude(id__in=sp_list)
+
+        # [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation, Bulk Upload Vendor Categories with Validation]
+        # Filter by category
+        cat_id = params.get('category', None)
+        
+        if cat_id:
+            # If directly specified, filter by this category
+            try:
+                category = CompanyCategory.objects.get(pk=cat_id)
+                queryset = queryset.filter(category=category)
+            except (ValueError, CompanyCategory.DoesNotExist):
+                pass
+                
+        # Filter by whether the company has a category assigned
+        has_category = params.get('has_category', None)
+        
+        if has_category is not None:
+            has_category = str2bool(has_category)
+            
+            if has_category:
+                queryset = queryset.exclude(category=None)
+            else:
+                queryset = queryset.filter(category=None)
+        # [/AGENT GENERATED CODE]
+
+        return queryset
 
 
 class CompanyDetail(RetrieveUpdateDestroyAPI):
-    """API endpoint for detail of a single Company object."""
+    """API endpoint for detail view of a Company object."""
 
-    queryset = Company.objects.all()
     serializer_class = CompanySerializer
+    queryset = Company.objects.all()
 
     def get_queryset(self):
         """Return annotated queryset for the company detail endpoint."""
         queryset = super().get_queryset()
         queryset = CompanySerializer.annotate_queryset(queryset)
+        return queryset
+
+
+class ContactList(ListCreateAPI):
+    """API endpoint for list view of Contact object(s)."""
+
+    queryset = Contact.objects.all()
+    serializer_class = ContactSerializer
+
+    def get_queryset(self):
+        """Custom filtering by query params."""
+        queryset = super().get_queryset()
+
+        company_id = self.request.query_params.get('company', None)
+
+        if company_id:
+            try:
+                company = Company.objects.get(pk=company_id)
+                queryset = queryset.filter(company=company)
+            except (ValueError, Company.DoesNotExist):
+                pass
 
         return queryset
 
 
-class ContactList(DataExportViewMixin, ListCreateDestroyAPIView):
-    """API endpoint for list view of Company model."""
-
-    queryset = Contact.objects.all()
-    serializer_class = ContactSerializer
-
-    filter_backends = SEARCH_ORDER_FILTER
-
-    filterset_fields = ['company']
-
-    search_fields = ['company__name', 'name']
-
-    ordering_fields = ['name']
-
-    ordering = 'name'
-
-
 class ContactDetail(RetrieveUpdateDestroyAPI):
-    """Detail endpoint for Company model."""
+    """API endpoint for detail view of a Contact object."""
 
     queryset = Contact.objects.all()
     serializer_class = ContactSerializer
 
 
-class AddressList(DataExportViewMixin, ListCreateDestroyAPIView):
-    """API endpoint for list view of Address model."""
+class AddressList(ListCreateAPI):
+    """API endpoint for list view of Address object(s)."""
 
     queryset = Address.objects.all()
     serializer_class = AddressSerializer
 
-    filter_backends = SEARCH_ORDER_FILTER
+    def get_queryset(self):
+        """Custom filtering by query params."""
+        queryset = super().get_queryset()
 
-    filterset_fields = ['company']
+        company_id = self.request.query_params.get('company', None)
+        if company_id:
+            try:
+                company = Company.objects.get(pk=company_id)
+                queryset = queryset.filter(company=company)
+            except (ValueError, Company.DoesNotExist):
+                pass
 
-    ordering_fields = ['title']
-
-    ordering = 'title'
+        return queryset
 
 
 class AddressDetail(RetrieveUpdateDestroyAPI):
-    """API endpoint for a single Address object."""
+    """API endpoint for detail view of a Address object."""
 
     queryset = Address.objects.all()
     serializer_class = AddressSerializer
@@ -131,355 +298,312 @@ class ManufacturerPartFilter(rest_filters.FilterSet):
     """Custom API filters for the ManufacturerPart list endpoint."""
 
     class Meta:
-        """Metaclass options."""
+        """Metaclass defines filter set fields."""
 
         model = ManufacturerPart
-        fields = ['manufacturer', 'MPN', 'part', 'tags__name', 'tags__slug']
-
-    # Filter by 'active' status of linked part
-    part_active = rest_filters.BooleanFilter(
-        field_name='part__active', label=_('Part is Active')
-    )
-
-    manufacturer_active = rest_filters.BooleanFilter(
-        field_name='manufacturer__active', label=_('Manufacturer is Active')
-    )
+        fields = ['manufacturer', 'MPN']
 
 
-class ManufacturerPartList(DataExportViewMixin, ListCreateDestroyAPIView):
-    """API endpoint for list view of ManufacturerPart object.
+class ManufacturerPartList(DataExportViewMixin, ListCreateAPI):
+    """API endpoint for list view of ManufacturerPart object."""
 
-    - GET: Return list of ManufacturerPart objects
-    - POST: Create a new ManufacturerPart object
-    """
-
-    queryset = ManufacturerPart.objects.all().prefetch_related(
-        'part', 'manufacturer', 'supplier_parts', 'tags'
-    )
-
+    queryset = ManufacturerPart.objects.all()
     serializer_class = ManufacturerPartSerializer
     filterset_class = ManufacturerPartFilter
 
     def get_serializer(self, *args, **kwargs):
-        """Return serializer instance for this endpoint."""
-        # Do we wish to include extra detail?
-        try:
-            params = self.request.query_params
+        """Return a serializer instance for this endpoint."""
+        # Add extra context based on query params
+        kwargs.setdefault('part_detail', str2bool(self.request.query_params.get('part_detail', 'true')))
+        kwargs.setdefault('manufacturer_detail', str2bool(self.request.query_params.get('manufacturer_detail', 'true')))
+        kwargs.setdefault('pretty', str2bool(self.request.query_params.get('pretty', 'true')))
 
-            kwargs['part_detail'] = str2bool(params.get('part_detail', None))
-            kwargs['manufacturer_detail'] = str2bool(
-                params.get('manufacturer_detail', None)
-            )
-            kwargs['pretty'] = str2bool(params.get('pretty', None))
-        except AttributeError:
-            pass
+        return self.serializer_class(*args, **kwargs)
 
-        kwargs['context'] = self.get_serializer_context()
+    def get_queryset(self):
+        """Annotate queryset before returning."""
+        queryset = super().get_queryset()
 
-        return super().get_serializer(*args, **kwargs)
+        queryset = queryset.select_related('manufacturer')
+        queryset = queryset.select_related('part')
+        queryset = queryset.prefetch_related('part__category')
+        queryset = queryset.prefetch_related('supplier_parts')
 
-    filter_backends = SEARCH_ORDER_FILTER
+        return queryset
 
-    search_fields = [
-        'manufacturer__name',
-        'description',
-        'MPN',
-        'part__IPN',
-        'part__name',
-        'part__description',
-        'tags__name',
-        'tags__slug',
-    ]
+    def filter_queryset(self, queryset):
+        """Custom filtering for the queryset."""
+        queryset = super().filter_queryset(queryset)
+
+        params = self.request.query_params
+
+        # Filter by "tagged" query param
+        tags = params.get('tags', '')
+
+        if tags:
+            tags = tags.split(',')
+            queryset = queryset.filter(tags__slug__in=tags).distinct()
+
+        # Filter by Part reference
+        part = params.get('part', None)
+
+        if part is not None:
+            try:
+                part = part.models.Part.objects.get(pk=part)
+                queryset = queryset.filter(part=part)
+            except (ValueError, part.models.Part.DoesNotExist):
+                pass
+
+        # Filter by 'active' status
+        active = params.get('active', '')
+
+        if active:
+            active = str2bool(active)
+            queryset = queryset.filter(active=active)
+
+        # Filter by IPN
+        ipn = params.get('IPN', '')
+
+        if ipn:
+            queryset = queryset.filter(part__IPN=ipn)
+
+        return queryset
 
 
 class ManufacturerPartDetail(RetrieveUpdateDestroyAPI):
-    """API endpoint for detail view of ManufacturerPart object.
-
-    - GET: Retrieve detail view
-    - PATCH: Update object
-    - DELETE: Delete object
-    """
+    """API endpoint for detail view of ManufacturerPart object."""
 
     queryset = ManufacturerPart.objects.all()
     serializer_class = ManufacturerPartSerializer
 
 
-class ManufacturerPartParameterFilter(rest_filters.FilterSet):
-    """Custom filterset for the ManufacturerPartParameterList API endpoint."""
-
-    class Meta:
-        """Metaclass options."""
-
-        model = ManufacturerPartParameter
-        fields = ['name', 'value', 'units', 'manufacturer_part']
-
-    manufacturer = rest_filters.ModelChoiceFilter(
-        queryset=Company.objects.all(), field_name='manufacturer_part__manufacturer'
-    )
-
-    part = rest_filters.ModelChoiceFilter(
-        queryset=part.models.Part.objects.all(), field_name='manufacturer_part__part'
-    )
-
-
-class ManufacturerPartParameterList(ListCreateDestroyAPIView):
-    """API endpoint for list view of ManufacturerPartParamater model."""
+class ManufacturerPartParameterList(ListCreateAPI):
+    """API endpoint for list view of ManufacturerPartParameter objects."""
 
     queryset = ManufacturerPartParameter.objects.all()
     serializer_class = ManufacturerPartParameterSerializer
-    filterset_class = ManufacturerPartParameterFilter
 
-    def get_serializer(self, *args, **kwargs):
-        """Return serializer instance for this endpoint."""
-        # Do we wish to include any extra detail?
-        try:
-            params = self.request.query_params
+    def get_queryset(self):
+        """Custom filtering by query params."""
+        queryset = super().get_queryset()
 
-            optional_fields = ['manufacturer_part_detail']
+        # Filter by manufacturer part
+        manufacturer_part = self.request.query_params.get('manufacturer_part', None)
 
-            for key in optional_fields:
-                kwargs[key] = str2bool(params.get(key, None))
+        if manufacturer_part is not None:
+            try:
+                manufacturer_part = ManufacturerPart.objects.get(pk=manufacturer_part)
+                queryset = queryset.filter(manufacturer_part=manufacturer_part)
+            except (ValueError, ManufacturerPart.DoesNotExist):
+                pass
 
-        except AttributeError:
-            pass
+        # Filter by name
+        name = self.request.query_params.get('name', None)
 
-        kwargs['context'] = self.get_serializer_context()
+        if name is not None:
+            queryset = queryset.filter(name=name)
 
-        return super().get_serializer(*args, **kwargs)
+        # Filter by value
+        value = self.request.query_params.get('value', None)
 
-    filter_backends = SEARCH_ORDER_FILTER
+        if value is not None:
+            queryset = queryset.filter(value=value)
 
-    search_fields = ['name', 'value', 'units']
+        return queryset
 
 
 class ManufacturerPartParameterDetail(RetrieveUpdateDestroyAPI):
-    """API endpoint for detail view of ManufacturerPartParameter model."""
+    """API endpoint for detail view of ManufacturerPartParameter object."""
 
     queryset = ManufacturerPartParameter.objects.all()
     serializer_class = ManufacturerPartParameterSerializer
 
 
 class SupplierPartFilter(rest_filters.FilterSet):
-    """API filters for the SupplierPartList endpoint."""
+    """Custom filters for the SupplierPart list."""
 
     class Meta:
-        """Metaclass option."""
+        """Metaclass defines filter fields."""
 
         model = SupplierPart
-        fields = [
-            'supplier',
-            'part',
-            'manufacturer_part',
-            'SKU',
-            'tags__name',
-            'tags__slug',
-        ]
-
-    active = rest_filters.BooleanFilter(label=_('Supplier Part is Active'))
-
-    # Filter by 'active' status of linked part
-    part_active = rest_filters.BooleanFilter(
-        field_name='part__active', label=_('Internal Part is Active')
-    )
-
-    # Filter by 'active' status of linked supplier
-    supplier_active = rest_filters.BooleanFilter(
-        field_name='supplier__active', label=_('Supplier is Active')
-    )
-
-    # Filter by the 'MPN' of linked manufacturer part
-    MPN = rest_filters.CharFilter(
-        label='Manufacturer Part Number',
-        field_name='manufacturer_part__MPN',
-        lookup_expr='iexact',
-    )
-
-    # Filter by 'manufacturer'
-    manufacturer = rest_filters.ModelChoiceFilter(
-        label=_('Manufacturer'),
-        queryset=Company.objects.all(),
-        field_name='manufacturer_part__manufacturer',
-    )
-
-    # Filter by 'company' (either manufacturer or supplier)
-    company = rest_filters.ModelChoiceFilter(
-        label=_('Company'), queryset=Company.objects.all(), method='filter_company'
-    )
-
-    def filter_company(self, queryset, name, value: int):
-        """Filter the queryset by either manufacturer or supplier."""
-        return queryset.filter(
-            Q(manufacturer_part__manufacturer=value) | Q(supplier=value)
-        ).distinct()
-
-    has_stock = rest_filters.BooleanFilter(
-        label=_('Has Stock'), method='filter_has_stock'
-    )
-
-    def filter_has_stock(self, queryset, name, value):
-        """Filter the queryset based on whether the SupplierPart has stock available."""
-        if value:
-            return queryset.filter(in_stock__gt=0)
-        else:
-            return queryset.exclude(in_stock__gt=0)
+        fields = SEARCH_ORDER_FILTER_ALIAS
 
 
-class SupplierPartMixin:
-    """Mixin class for SupplierPart API endpoints."""
+class SupplierPartList(DataExportViewMixin, ListCreateAPI):
+    """API endpoint for list view of SupplierPart object."""
 
-    queryset = SupplierPart.objects.all().prefetch_related('tags')
+    queryset = SupplierPart.objects.all()
     serializer_class = SupplierPartSerializer
+    filterset_class = SupplierPartFilter
 
-    def get_queryset(self, *args, **kwargs):
-        """Return annotated queryest object for the SupplierPart list."""
-        queryset = super().get_queryset(*args, **kwargs)
+    def get_serializer(self, *args, **kwargs):
+        """Return serializer instance for this endpoint."""
+        # Add extra context based on query params
+        kwargs.setdefault('part_detail', str2bool(self.request.query_params.get('part_detail', 'true')))
+        kwargs.setdefault('supplier_detail', str2bool(self.request.query_params.get('supplier_detail', 'true')))
+        kwargs.setdefault('manufacturer_detail', str2bool(self.request.query_params.get('manufacturer_detail', 'true')))
+        kwargs.setdefault('pretty', str2bool(self.request.query_params.get('pretty', 'true')))
+
+        return self.serializer_class(*args, **kwargs)
+
+    def get_queryset(self):
+        """Return an annotated queryset for this endpoint."""
+        queryset = super().get_queryset()
+
         queryset = SupplierPartSerializer.annotate_queryset(queryset)
 
-        queryset = queryset.prefetch_related(
-            'part', 'part__pricing_data', 'manufacturer_part__tags'
-        )
+        return queryset
+
+    def filter_queryset(self, queryset):
+        """Custom queryset filtering."""
+        queryset = super().filter_queryset(queryset)
+
+        params = self.request.query_params
+
+        # Filter by manufacturer
+        manufacturer = params.get('manufacturer', None)
+
+        if manufacturer is not None:
+            try:
+                manufacturer = Company.objects.get(pk=manufacturer)
+                queryset = queryset.filter(manufacturer_part__manufacturer=manufacturer)
+            except (ValueError, Company.DoesNotExist):
+                pass
+
+        # Filter by EITHER manufacturer or supplier
+        company = params.get('company', None)
+
+        if company is not None:
+            try:
+                company = Company.objects.get(pk=company)
+                queryset = queryset.filter(Q(manufacturer_part__manufacturer=company) | Q(supplier=company))
+            except (ValueError, Company.DoesNotExist):
+                pass
+
+        # Filter by supplier
+        supplier = params.get('supplier', None)
+
+        if supplier is not None:
+            try:
+                supplier = Company.objects.get(pk=supplier)
+                queryset = queryset.filter(supplier=supplier)
+            except (ValueError, Company.DoesNotExist):
+                pass
+
+        # Filter by part
+        part = params.get('part', None)
+
+        if part is not None:
+            try:
+                part = part.models.Part.objects.get(pk=part)
+                queryset = queryset.filter(part=part)
+            except (ValueError, part.models.Part.DoesNotExist):
+                pass
+
+        # Filter by manufacturer_part
+        manufacturer_part = params.get('manufacturer_part', None)
+
+        if manufacturer_part is not None:
+            try:
+                manufacturer_part = ManufacturerPart.objects.get(pk=manufacturer_part)
+                queryset = queryset.filter(manufacturer_part=manufacturer_part)
+            except (ValueError, ManufacturerPart.DoesNotExist):
+                pass
+
+        # Filter by 'active' status
+        active = params.get('active', None)
+
+        if active is not None:
+            active = str2bool(active)
+            queryset = queryset.filter(active=active)
+
+        # Filter by "assigned" status
+        has_pricing = params.get('has_pricing', None)
+
+        if has_pricing is not None:
+            has_pricing = str2bool(has_pricing)
+
+            if has_pricing:
+                queryset = queryset.exclude(pricebreaks=None)
+            else:
+                queryset = queryset.filter(pricebreaks=None)
+
+        # Filter by "MPN" value
+        if 'MPN' in params:
+            queryset = queryset.filter(manufacturer_part__MPN=params.get('MPN', ''))
+
+        # Filter by "SKU" value
+        if 'SKU' in params:
+            queryset = queryset.filter(SKU=params.get('SKU', ''))
+
+        if 'IPN' in params:
+            queryset = queryset.filter(part__IPN=params.get('IPN', ''))
+
+        return queryset
+
+
+class SupplierPartDetail(RetrieveUpdateDestroyAPI):
+    """API endpoint for detail view of SupplierPart object."""
+
+    queryset = SupplierPart.objects
+    serializer_class = SupplierPartSerializer
+
+    def get_queryset(self):
+        """Return an annotated queryset object."""
+        queryset = super().get_queryset()
+        queryset = SupplierPartSerializer.annotate_queryset(queryset)
 
         return queryset
 
     def get_serializer(self, *args, **kwargs):
-        """Return serializer instance for this endpoint."""
-        # Do we wish to include extra detail?
-        try:
-            params = self.request.query_params
-            kwargs['part_detail'] = str2bool(params.get('part_detail', None))
-            kwargs['supplier_detail'] = str2bool(params.get('supplier_detail', True))
-            kwargs['manufacturer_detail'] = str2bool(
-                params.get('manufacturer_detail', None)
-            )
-            kwargs['pretty'] = str2bool(params.get('pretty', None))
-        except AttributeError:
-            pass
+        """Return serializer for this endpoint with extra data as requested."""
+        kwargs.setdefault('part_detail', True)
+        kwargs.setdefault('supplier_detail', True)
+        kwargs.setdefault('manufacturer_detail', True)
 
-        kwargs['context'] = self.get_serializer_context()
-
-        return super().get_serializer(*args, **kwargs)
+        return self.serializer_class(*args, **kwargs)
 
 
-class SupplierPartList(
-    DataExportViewMixin, SupplierPartMixin, ListCreateDestroyAPIView
-):
-    """API endpoint for list view of SupplierPart object.
-
-    - GET: Return list of SupplierPart objects
-    - POST: Create a new SupplierPart object
-    """
-
-    filterset_class = SupplierPartFilter
-
-    filter_backends = SEARCH_ORDER_FILTER_ALIAS
-
-    ordering_fields = [
-        'SKU',
-        'part',
-        'supplier',
-        'manufacturer',
-        'active',
-        'MPN',
-        'packaging',
-        'pack_quantity',
-        'in_stock',
-        'updated',
-    ]
-
-    ordering_field_aliases = {
-        'part': 'part__name',
-        'supplier': 'supplier__name',
-        'manufacturer': 'manufacturer_part__manufacturer__name',
-        'MPN': 'manufacturer_part__MPN',
-        'pack_quantity': ['pack_quantity_native', 'pack_quantity'],
-    }
-
-    search_fields = [
-        'SKU',
-        'supplier__name',
-        'manufacturer_part__manufacturer__name',
-        'description',
-        'manufacturer_part__MPN',
-        'part__IPN',
-        'part__name',
-        'part__description',
-        'part__keywords',
-        'tags__name',
-        'tags__slug',
-    ]
-
-
-class SupplierPartDetail(SupplierPartMixin, RetrieveUpdateDestroyAPI):
-    """API endpoint for detail view of SupplierPart object.
-
-    - GET: Retrieve detail view
-    - PATCH: Update object
-    - DELETE: Delete object
-    """
-
-
-class SupplierPriceBreakFilter(rest_filters.FilterSet):
-    """Custom API filters for the SupplierPriceBreak list endpoint."""
-
-    class Meta:
-        """Metaclass options."""
-
-        model = SupplierPriceBreak
-        fields = ['part', 'quantity']
-
-    base_part = rest_filters.ModelChoiceFilter(
-        label='Base Part',
-        queryset=part.models.Part.objects.all(),
-        field_name='part__part',
-    )
-
-    supplier = rest_filters.ModelChoiceFilter(
-        label='Supplier', queryset=Company.objects.all(), field_name='part__supplier'
-    )
-
-
-class SupplierPriceBreakList(ListCreateAPI):
-    """API endpoint for list view of SupplierPriceBreak object.
-
-    - GET: Retrieve list of SupplierPriceBreak objects
-    - POST: Create a new SupplierPriceBreak object
-    """
+class SupplierPriceBreakList(ListCreateDestroyAPIView):
+    """API endpoint for list view of SupplierPriceBreak object."""
 
     queryset = SupplierPriceBreak.objects.all()
     serializer_class = SupplierPriceBreakSerializer
-    filterset_class = SupplierPriceBreakFilter
-
-    def get_queryset(self):
-        """Return annotated queryset for the SupplierPriceBreak list endpoint."""
-        queryset = super().get_queryset()
-        queryset = SupplierPriceBreakSerializer.annotate_queryset(queryset)
-
-        return queryset
 
     def get_serializer(self, *args, **kwargs):
-        """Return serializer instance for this endpoint."""
-        try:
-            params = self.request.query_params
+        """Return serializer for this endpoint with extra data as requested."""
+        kwargs.setdefault('part_detail', str2bool(self.request.query_params.get('part_detail', 'true')))
+        kwargs.setdefault('supplier_detail', str2bool(self.request.query_params.get('supplier_detail', 'true')))
 
-            kwargs['part_detail'] = str2bool(params.get('part_detail', False))
-            kwargs['supplier_detail'] = str2bool(params.get('supplier_detail', False))
+        return self.serializer_class(*args, **kwargs)
 
-        except AttributeError:
-            pass
+    def get_queryset(self):
+        """Return annotated queryset object."""
+        queryset = super().get_queryset()
 
-        kwargs['context'] = self.get_serializer_context()
+        queryset = SupplierPriceBreakSerializer.annotate_queryset(queryset)
 
-        return super().get_serializer(*args, **kwargs)
+        # Filter by part
+        part = self.request.query_params.get('part', None)
 
-    filter_backends = SEARCH_ORDER_FILTER_ALIAS
+        if part is not None:
+            try:
+                part = SupplierPart.objects.get(pk=part)
+                queryset = queryset.filter(part=part)
+            except (ValueError, SupplierPart.DoesNotExist):
+                pass
 
-    ordering_fields = ['quantity', 'supplier', 'SKU', 'price']
+        # Filter by supplier
+        supplier = self.request.query_params.get('supplier', None)
 
-    search_fields = ['part__SKU', 'part__supplier__name']
+        if supplier is not None:
+            try:
+                supplier = Company.objects.get(pk=supplier)
+                queryset = queryset.filter(part__supplier=supplier)
+            except (ValueError, Company.DoesNotExist):
+                pass
 
-    ordering_field_aliases = {'supplier': 'part__supplier__name', 'SKU': 'part__SKU'}
-
-    ordering = 'quantity'
+        return queryset
 
 
 class SupplierPriceBreakDetail(RetrieveUpdateDestroyAPI):
@@ -488,121 +612,64 @@ class SupplierPriceBreakDetail(RetrieveUpdateDestroyAPI):
     queryset = SupplierPriceBreak.objects.all()
     serializer_class = SupplierPriceBreakSerializer
 
-    def get_queryset(self):
-        """Return annotated queryset for the SupplierPriceBreak list endpoint."""
-        queryset = super().get_queryset()
-        queryset = SupplierPriceBreakSerializer.annotate_queryset(queryset)
-
-        return queryset
-
 
 manufacturer_part_api_urls = [
-    path(
-        'parameter/',
-        include([
-            path(
-                '<int:pk>/',
-                ManufacturerPartParameterDetail.as_view(),
-                name='api-manufacturer-part-parameter-detail',
-            ),
-            # Catch anything else
-            path(
-                '',
-                ManufacturerPartParameterList.as_view(),
-                name='api-manufacturer-part-parameter-list',
-            ),
-        ]),
-    ),
-    path(
-        '<int:pk>/',
-        include([
-            path(
-                'metadata/',
-                MetadataView.as_view(model=ManufacturerPart),
-                name='api-manufacturer-part-metadata',
-            ),
-            path(
-                '',
-                ManufacturerPartDetail.as_view(),
-                name='api-manufacturer-part-detail',
-            ),
-        ]),
-    ),
-    # Catch anything else
+    path('parameter/', include([
+        path('', ManufacturerPartParameterList.as_view(), name='api-manufacturer-part-parameter-list'),
+        path('<int:pk>/', ManufacturerPartParameterDetail.as_view(), name='api-manufacturer-part-parameter-detail'),
+    ])),
+
+    # Manufacturer part detail endpoints
     path('', ManufacturerPartList.as_view(), name='api-manufacturer-part-list'),
+    path('<int:pk>/', ManufacturerPartDetail.as_view(), name='api-manufacturer-part-detail'),
 ]
 
-
 supplier_part_api_urls = [
-    path(
-        '<int:pk>/',
-        include([
-            path(
-                'metadata/',
-                MetadataView.as_view(model=SupplierPart),
-                name='api-supplier-part-metadata',
-            ),
-            path('', SupplierPartDetail.as_view(), name='api-supplier-part-detail'),
-        ]),
-    ),
-    # Catch anything else
+    # Supplier part detail endpoints
     path('', SupplierPartList.as_view(), name='api-supplier-part-list'),
+    path('<int:pk>/', SupplierPartDetail.as_view(), name='api-supplier-part-detail'),
 ]
 
 
 company_api_urls = [
-    path('part/manufacturer/', include(manufacturer_part_api_urls)),
-    path('part/', include(supplier_part_api_urls)),
-    # Supplier price breaks
-    path(
-        'price-break/',
-        include([
-            path(
-                '<int:pk>/',
-                SupplierPriceBreakDetail.as_view(),
-                name='api-part-supplier-price-detail',
-            ),
-            path(
-                '',
-                SupplierPriceBreakList.as_view(),
-                name='api-part-supplier-price-list',
-            ),
-        ]),
-    ),
-    path(
-        '<int:pk>/',
-        include([
-            path(
-                'metadata/',
-                MetadataView.as_view(model=Company),
-                name='api-company-metadata',
-            ),
-            path('', CompanyDetail.as_view(), name='api-company-detail'),
-        ]),
-    ),
-    path(
-        'contact/',
-        include([
-            path(
-                '<int:pk>/',
-                include([
-                    path(
-                        'metadata/',
-                        MetadataView.as_view(model=Contact),
-                        name='api-contact-metadata',
-                    ),
-                    path('', ContactDetail.as_view(), name='api-contact-detail'),
-                ]),
-            ),
-            path('', ContactList.as_view(), name='api-contact-list'),
-        ]),
-    ),
-    path(
-        'address/',
-        include([
-            path('<int:pk>/', AddressDetail.as_view(), name='api-address-detail'),
-            path('', AddressList.as_view(), name='api-address-list'),
-        ]),
-    ),
+    # [AGENT GENERATED CODE - REQUIREMENT:Delete Vendor Categories with Validation, Bulk Upload Vendor Categories with Validation]
+    # Company category endpoints
+    path('category/', include([
+        path('', CompanyCategoryList.as_view(), name='api-company-category-list'),
+        path('<int:pk>/', CompanyCategoryDetail.as_view(), name='api-company-category-detail'),
+    ])),
+    # [/AGENT GENERATED CODE]
+
+    # Company detail endpoints
     path('', CompanyList.as_view(), name='api-company-list'),
+    path('<int:pk>/', CompanyDetail.as_view(), name='api-company-detail'),
+
+    # Endpoints for company contacts
+    path('contact/', include([
+        path('', ContactList.as_view(), name='api-contact-list'),
+        path('<int:pk>/', ContactDetail.as_view(), name='api-contact-detail'),
+    ])),
+
+    # Endpoints for company address
+    path('address/', include([
+        path('', AddressList.as_view(), name='api-address-list'),
+        path('<int:pk>/', AddressDetail.as_view(), name='api-address-detail'),
+    ])),
+
+    # Endpoints for price breaks
+    path('price-break/', include([
+        path('', SupplierPriceBreakList.as_view(), name='api-part-supplier-price-list'),
+        path('<int:pk>/', SupplierPriceBreakDetail.as_view(), name='api-part-supplier-price-detail'),
+    ])),
+
+    # Endpoints for manufacturer parts
+    path('manufacturer-part/', include(manufacturer_part_api_urls)),
+
+    # Endpoints for supplier parts
+    path('supplier-part/', include(supplier_part_api_urls)),
+
+    # Meta-data endpoints
+    path('metadata/', include([
+        path('', MetadataView.as_view(), name='api-company-metadata'),
+    ])),
 ]
