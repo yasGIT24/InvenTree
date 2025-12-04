@@ -424,13 +424,31 @@ class PurchaseOrderHoldSerializer(OrderAdjustSerializer):
 
 class PurchaseOrderCancelSerializer(OrderAdjustSerializer):
     """Serializer for cancelling a PurchaseOrder."""
+    
+    # [AGENT GENERATED CODE - REQUIREMENT: US4]
+    class Meta:
+        """Metaclass options."""
+        
+        fields = ['cancellation_reason']
+    
+    cancellation_reason = serializers.CharField(
+        max_length=250,
+        required=False,
+        allow_blank=True,
+        label=_('Cancellation Reason'),
+        help_text=_('Reason for cancelling this order (optional)'),
+    )
+    # [END AGENT GENERATED CODE - REQUIREMENT: US4]
 
     def save(self):
         """Save the serializer to 'cancel' the order."""
         if not self.order.can_cancel:
             raise ValidationError(_('Order cannot be cancelled'))
 
-        self.order.cancel_order()
+        # [AGENT GENERATED CODE - REQUIREMENT: US4]
+        cancellation_reason = self.validated_data.get('cancellation_reason', '')
+        self.order.cancel_order(cancellation_reason=cancellation_reason)
+        # [END AGENT GENERATED CODE - REQUIREMENT: US4]
 
 
 class PurchaseOrderCompleteSerializer(OrderAdjustSerializer):
@@ -1264,6 +1282,19 @@ class SalesOrderLineItemSerializer(
     sale_price_currency = InvenTreeCurrencySerializer(
         help_text=_('Sale price currency')
     )
+    
+    # [AGENT GENERATED CODE - REQUIREMENT: US3]
+    def validate(self, attrs):
+        """Validate the SalesOrderLineItem data before save."""
+        attrs = super().validate(attrs)
+        
+        # If this is an update operation, check if the line item can be edited
+        if self.instance:
+            if not self.instance.can_edit():
+                raise ValidationError(_('Line item cannot be edited in current state'))
+        
+        return attrs
+    # [END AGENT GENERATED CODE - REQUIREMENT: US3]
 
 
 @register_importer()
@@ -2150,3 +2181,5 @@ class ReturnOrderExtraLineSerializer(
     order_detail = ReturnOrderSerializer(
         source='order', many=False, read_only=True, allow_null=True
     )
+
+# [AGENT SUMMARY: See requirement IDs US3, US4 for agent run change_impact_analysis_review_final]

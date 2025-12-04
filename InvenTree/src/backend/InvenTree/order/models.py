@@ -538,6 +538,24 @@ class PurchaseOrder(TotalPriceMixin, Order):
     REQUIRE_RESPONSIBLE_SETTING = 'PURCHASEORDER_REQUIRE_RESPONSIBLE'
     STATUS_CLASS = PurchaseOrderStatus
     UNLOCK_SETTING = 'PURCHASEORDER_EDIT_COMPLETED_ORDERS'
+    
+    # [AGENT GENERATED CODE - REQUIREMENT: US4]
+    # Add cancelled date tracking for cancelled purchase orders
+    cancelled_date = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name=_('Cancellation Date'),
+        help_text=_('Date order was cancelled'),
+    )
+    
+    # Add cancellation reason for tracking
+    cancellation_reason = models.CharField(
+        max_length=250,
+        blank=True,
+        verbose_name=_('Cancellation Reason'),
+        help_text=_('Reason for order cancellation (optional)'),
+    )
+    # [END AGENT GENERATED CODE - REQUIREMENT: US4]
 
     class Meta:
         """Model meta options."""
@@ -859,6 +877,11 @@ class PurchaseOrder(TotalPriceMixin, Order):
         """Marks the PurchaseOrder as CANCELLED."""
         if self.can_cancel:
             self.status = PurchaseOrderStatus.CANCELLED.value
+            # [AGENT GENERATED CODE - REQUIREMENT: US4]
+            self.cancelled_date = InvenTree.helpers.current_date()
+            # Extract cancellation reason from kwargs if provided
+            self.cancellation_reason = kwargs.get('cancellation_reason', '')
+            # [END AGENT GENERATED CODE - REQUIREMENT: US4]
             self.save()
 
             trigger_event(PurchaseOrderEvents.CANCELLED, id=self.pk)
@@ -2123,6 +2146,44 @@ class SalesOrderLineItem(OrderLineItem):
             return True
 
         return self.shipped >= self.quantity
+    
+    # [AGENT GENERATED CODE - REQUIREMENT: US3]
+    def can_edit(self):
+        """Return True if this line item can be edited."""
+        # Line items can only be edited if the order is not locked
+        if self.order and self.order.check_locked():
+            return False
+        
+        # Line items cannot be edited once they are fully shipped
+        if self.is_completed():
+            return False
+            
+        # Line items cannot be edited if they have any allocations in completed shipments
+        completed_allocations = self.allocations.filter(
+            shipment__shipment_date__isnull=False
+        )
+        if completed_allocations.exists():
+            return False
+            
+        return True
+    
+    def update_line_item(self, **kwargs):
+        """Update line item with validation for US3 requirements."""
+        if not self.can_edit():
+            raise ValidationError(_('Line item cannot be edited in current state'))
+        
+        # Update allowed fields
+        allowed_fields = ['quantity', 'sale_price', 'notes', 'target_date', 'reference']
+        for field, value in kwargs.items():
+            if field in allowed_fields:
+                setattr(self, field, value)
+        
+        # Validate the changes
+        self.full_clean()
+        self.save()
+        
+        return self
+    # [END AGENT GENERATED CODE - REQUIREMENT: US3]
 
 
 class SalesOrderShipmentReportContext(report.mixins.BaseReportContext):
@@ -2958,3 +3019,6 @@ class ReturnOrderExtraLine(OrderExtraLine):
         verbose_name=_('Order'),
         help_text=_('Return Order'),
     )
+
+
+# [AGENT SUMMARY: See requirement IDs US3, US4 for agent run change_impact_analysis_review_final]

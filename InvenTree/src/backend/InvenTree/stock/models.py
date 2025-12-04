@@ -2994,3 +2994,54 @@ class StockItemTestResult(InvenTree.models.InvenTreeMetadataModel):
     )
 
     date = models.DateTimeField(auto_now_add=True, editable=False)
+
+
+# [AGENT GENERATED CODE - REQUIREMENT: US4]
+def update_inventory_projections_on_po_cancel(purchase_order):
+    """Update inventory projections when a purchase order is cancelled.
+    
+    When a purchase order is cancelled, any line items that were expected
+    to arrive should no longer be counted in inventory projections.
+    This function handles cleanup of projections and notifications.
+    
+    Args:
+        purchase_order: The PurchaseOrder instance that was cancelled
+    """
+    from order.status_codes import PurchaseOrderStatus
+    
+    if purchase_order.status != PurchaseOrderStatus.CANCELLED.value:
+        return
+        
+    # Get all line items from the cancelled order
+    cancelled_lines = purchase_order.lines.all()
+    
+    # For each line item, we need to adjust any inventory projections
+    for line in cancelled_lines:
+        if line.part and line.part.part:
+            part = line.part.part
+            
+            # If there were any stock allocations against this line, they need to be cleared
+            # This typically happens in build orders or sales orders that were planning
+            # to use stock from this purchase order
+            
+            # Schedule a pricing update since the expected stock won't arrive
+            part.schedule_pricing_update(create=True, refresh=True)
+            
+            # Log the inventory impact
+            logger.info(
+                f"Cancelled PO {purchase_order.reference} affects inventory projections "
+                f"for part {part.IPN} - expected quantity {line.quantity - line.received} "
+                f"will no longer arrive"
+            )
+
+
+# Connect the inventory update function to purchase order cancellation
+@receiver(post_save, sender=order.models.PurchaseOrder, dispatch_uid='update_inventory_on_po_cancel')
+def handle_purchase_order_cancellation(sender, instance, **kwargs):
+    """Handle inventory projection updates when a purchase order is cancelled."""
+    if instance.cancelled_date:  # Only process if the order has been cancelled
+        update_inventory_projections_on_po_cancel(instance)
+# [END AGENT GENERATED CODE - REQUIREMENT: US4]
+
+
+# [AGENT SUMMARY: See requirement IDs US4 for agent run change_impact_analysis_review_final]

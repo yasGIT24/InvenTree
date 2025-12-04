@@ -158,6 +158,33 @@ export default function PurchaseOrderDetail() {
         icon: 'status',
         hidden:
           !order.status_custom_key || order.status_custom_key == order.status
+      },
+      // [AGENT GENERATED CODE - REQUIREMENT: USX]
+      // [AGENT SUMMARY: See requirement IDs US4 for agent run change_impact_analysis_review_final]
+      // Enhanced cancelled PO display for clear visibility in inventory reconciliation
+      {
+        type: 'text',
+        name: 'cancelled_info',
+        label: t`Cancellation Info`,
+        icon: 'cancel',
+        hidden: !order.status || order.status !== 70, // 70 = CANCELLED status
+        value_formatter: () => {
+          if (order.status === 70) {
+            return {
+              element: (
+                <Stack gap="xs">
+                  <StylishText size="sm" style={{ color: 'red', fontWeight: 'bold' }}>
+                    ⚠️ CANCELLED ORDER - EXCLUDED FROM INVENTORY CALCULATIONS
+                  </StylishText>
+                  <StylishText size="xs" style={{ color: 'gray' }}>
+                    This order does not count toward projected stock levels
+                  </StylishText>
+                </Stack>
+              )
+            };
+          }
+          return '';
+        }
       }
     ];
 

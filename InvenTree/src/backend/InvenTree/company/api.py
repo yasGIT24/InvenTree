@@ -21,6 +21,7 @@ from .models import (
     ManufacturerPartParameter,
     SupplierPart,
     SupplierPriceBreak,
+    VendorCategory,  # [AGENT GENERATED CODE - REQUIREMENT: US1, US2]
 )
 from .serializers import (
     AddressSerializer,
@@ -30,6 +31,7 @@ from .serializers import (
     ManufacturerPartSerializer,
     SupplierPartSerializer,
     SupplierPriceBreakSerializer,
+    VendorCategorySerializer,  # [AGENT GENERATED CODE - REQUIREMENT: US1, US2]
 )
 
 
@@ -496,6 +498,129 @@ class SupplierPriceBreakDetail(RetrieveUpdateDestroyAPI):
         return queryset
 
 
+# [AGENT GENERATED CODE - REQUIREMENT: US1, US2, US5, US6]
+class VendorCategoryFilter(rest_filters.FilterSet):
+    """Custom filterset for VendorCategory model."""
+
+    class Meta:
+        """Metaclass options."""
+        
+        model = VendorCategory
+        fields = ['name', 'parent', 'is_active']
+
+    # Search functionality
+    search = rest_filters.CharFilter(
+        method='filter_search', 
+        label=_('Search'),
+        help_text=_('Search vendor categories by name or description')
+    )
+
+    def filter_search(self, queryset, name, value):
+        """Filter by 'search' parameter."""
+        value = str(value).strip().lower()
+        
+        if not value:
+            return queryset
+
+        return queryset.filter(
+            Q(name__icontains=value) | Q(description__icontains=value)
+        )
+
+
+class VendorCategoryList(DataExportViewMixin, ListCreateAPI):
+    """API endpoint for accessing a list of VendorCategory objects.
+    
+    Provides:
+    - GET: Return list of vendor categories
+    - POST: Create a new vendor category
+    """
+
+    serializer_class = VendorCategorySerializer
+    queryset = VendorCategory.objects.all()
+    filterset_class = VendorCategoryFilter
+
+    filter_backends = SEARCH_ORDER_FILTER
+
+    ordering_fields = ['name', 'is_active']
+    ordering = ['name']
+
+    search_fields = ['name', 'description']
+
+    def get_queryset(self):
+        """Return annotated queryset for the vendor category list endpoint."""
+        queryset = super().get_queryset()
+        queryset = VendorCategorySerializer.annotate_queryset(queryset)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        """Custom create method with permission checking."""
+        # [AGENT GENERATED CODE - REQUIREMENT: US6] - RBAC permission check
+        from InvenTree.permissions import RolePermission
+        
+        if not RolePermission.check_user_role(
+            self.request.user, 
+            role='company', 
+            permission='add'
+        ):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(_('Insufficient permissions to create vendor categories'))
+            
+        serializer.save()
+
+
+class VendorCategoryDetail(RetrieveUpdateDestroyAPI):
+    """Detail endpoint for VendorCategory object."""
+
+    queryset = VendorCategory.objects.all()
+    serializer_class = VendorCategorySerializer
+
+    def get_queryset(self):
+        """Return annotated queryset for the vendor category detail endpoint."""
+        queryset = super().get_queryset()
+        queryset = VendorCategorySerializer.annotate_queryset(queryset)
+
+        return queryset
+
+    def perform_destroy(self, instance):
+        """Custom delete method with validation."""
+        # [AGENT GENERATED CODE - REQUIREMENT: US1] - Deletion validation
+        can_delete, reason = instance.can_delete()
+        
+        if not can_delete:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'detail': reason})
+        
+        # [AGENT GENERATED CODE - REQUIREMENT: US6] - RBAC permission check
+        from InvenTree.permissions import RolePermission
+        
+        if not RolePermission.check_user_role(
+            self.request.user,
+            role='company',
+            permission='delete'
+        ):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(_('Insufficient permissions to delete vendor categories'))
+            
+        instance.delete()
+
+    def perform_update(self, serializer):
+        """Custom update method with permission checking."""
+        # [AGENT GENERATED CODE - REQUIREMENT: US6] - RBAC permission check
+        from InvenTree.permissions import RolePermission
+        
+        if not RolePermission.check_user_role(
+            self.request.user,
+            role='company',
+            permission='change'
+        ):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(_('Insufficient permissions to modify vendor categories'))
+            
+        serializer.save()
+# [END AGENT GENERATED CODE]
+
+
 manufacturer_part_api_urls = [
     path(
         'parameter/',
@@ -604,5 +729,17 @@ company_api_urls = [
             path('', AddressList.as_view(), name='api-address-list'),
         ]),
     ),
+    # [AGENT GENERATED CODE - REQUIREMENT: US1, US2, US5, US6]
+    path(
+        'category/',
+        include([
+            path('<int:pk>/', VendorCategoryDetail.as_view(), name='api-vendor-category-detail'),
+            path('', VendorCategoryList.as_view(), name='api-vendor-category-list'),
+        ]),
+    ),
+    # [END AGENT GENERATED CODE]
     path('', CompanyList.as_view(), name='api-company-list'),
 ]
+
+
+# [AGENT SUMMARY: See requirement IDs US1, US2, US5, US6 for agent run change_impact_analysis_review_final]

@@ -459,6 +459,16 @@ class PurchaseOrderCancel(PurchaseOrderContextMixin, CreateAPI):
     """
 
     serializer_class = serializers.PurchaseOrderCancelSerializer
+    
+    # [AGENT GENERATED CODE - REQUIREMENT: US4]
+    def perform_create(self, serializer):
+        """Override to pass cancellation reason to the model."""
+        order = serializer.context['order']
+        cancellation_reason = serializer.validated_data.get('cancellation_reason', '')
+        
+        # Call the model's cancel method with the reason
+        order.cancel_order(cancellation_reason=cancellation_reason)
+    # [END AGENT GENERATED CODE - REQUIREMENT: US4]
 
 
 class PurchaseOrderComplete(PurchaseOrderContextMixin, CreateAPI):
@@ -1070,6 +1080,20 @@ class SalesOrderLineItemList(
 
 class SalesOrderLineItemDetail(SalesOrderLineItemMixin, RetrieveUpdateDestroyAPI):
     """API endpoint for detail view of a SalesOrderLineItem object."""
+    
+    # [AGENT GENERATED CODE - REQUIREMENT: US3]
+    def perform_update(self, serializer):
+        """Override update to use the new update_line_item method."""
+        instance = serializer.instance
+        
+        # Check if the line item can be edited
+        if not instance.can_edit():
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(_('Line item cannot be edited in current state'))
+        
+        # Use the model's update method for validation
+        instance.update_line_item(**serializer.validated_data)
+    # [END AGENT GENERATED CODE - REQUIREMENT: US3]
 
 
 class SalesOrderExtraLineList(GeneralExtraLineList, ListCreateAPI):
@@ -2175,3 +2199,5 @@ order_api_urls = [
         name='api-po-so-calendar',
     ),
 ]
+
+# [AGENT SUMMARY: See requirement IDs US3, US4 for agent run change_impact_analysis_review_final]

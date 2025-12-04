@@ -168,3 +168,104 @@ def check_user_permission(
     InvenTree.cache.set_session_cache(cache_key, result)
 
     return result
+
+
+# [AGENT GENERATED CODE - REQUIREMENT: US3, US6]
+def check_line_item_edit_permission(user: User, line_item) -> bool:
+    """Check if user has permission to edit a sales order line item.
+    
+    Args:
+        user: The user to check permissions for
+        line_item: The SalesOrderLineItem instance
+        
+    Returns:
+        bool: True if user can edit the line item
+    """
+    # Check basic change permission for sales orders
+    if not check_user_role(user, 'sales_order', 'change'):
+        return False
+        
+    # Check if the line item itself can be edited (business logic)
+    if hasattr(line_item, 'can_edit') and not line_item.can_edit():
+        return False
+        
+    # Additional role-based checks
+    # Sales managers can edit any line items
+    if check_user_role(user, 'sales_order', 'delete'):
+        return True
+        
+    # Regular users can only edit line items on orders they created or are responsible for
+    if line_item.order.created_by == user:
+        return True
+        
+    if hasattr(line_item.order, 'responsible') and line_item.order.responsible:
+        from users.models import Owner
+        owners = Owner.get_owners_matching_user(user)
+        if line_item.order.responsible in owners:
+            return True
+    
+    return False
+
+
+def check_vendor_category_permission(user: User, action: str) -> bool:
+    """Check if user has permission to perform actions on vendor categories.
+    
+    Args:
+        user: The user to check permissions for
+        action: The action to check ('view', 'add', 'change', 'delete', 'upload')
+        
+    Returns:
+        bool: True if user has permission
+    """
+    # Map upload permission to change permission
+    if action == 'upload':
+        action = 'change'
+        
+    # Check company management permissions for vendor category operations
+    if check_user_role(user, 'company', action):
+        return True
+        
+    # Purchase managers can manage vendor categories
+    if action in ['view', 'add', 'change'] and check_user_role(user, 'purchase_order', 'change'):
+        return True
+        
+    # Only admin roles can delete vendor categories (US1 requirement)
+    if action == 'delete':
+        return check_user_role(user, 'company', 'delete')
+    
+    return False
+
+
+def check_purchase_order_cancel_permission(user: User, purchase_order) -> bool:
+    """Check if user has permission to cancel a purchase order.
+    
+    Args:
+        user: The user to check permissions for
+        purchase_order: The PurchaseOrder instance
+        
+    Returns:
+        bool: True if user can cancel the order
+    """
+    # Check basic change permission
+    if not check_user_role(user, 'purchase_order', 'change'):
+        return False
+        
+    # Purchase managers can cancel any order
+    if check_user_role(user, 'purchase_order', 'delete'):
+        return True
+        
+    # Users can cancel orders they created or are responsible for
+    if purchase_order.created_by == user:
+        return True
+        
+    if hasattr(purchase_order, 'responsible') and purchase_order.responsible:
+        from users.models import Owner
+        owners = Owner.get_owners_matching_user(user)
+        if purchase_order.responsible in owners:
+            return True
+    
+    return False
+# [END AGENT GENERATED CODE - REQUIREMENT: US3, US6]
+
+
+# [AGENT SUMMARY: See requirement IDs US3, US6 for agent run change_impact_analysis_review_final]

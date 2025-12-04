@@ -36,6 +36,7 @@ from .models import (
     ManufacturerPartParameter,
     SupplierPart,
     SupplierPriceBreak,
+    VendorCategory,  # [AGENT GENERATED CODE - REQUIREMENT: US1, US2]
 )
 
 
@@ -149,6 +150,7 @@ class CompanySerializer(
             'address_count',
             'primary_address',
             'tax_id',
+            'vendor_category',  # [AGENT GENERATED CODE - REQUIREMENT: US1, US2]
         ]
 
     @staticmethod
@@ -604,3 +606,94 @@ class SupplierPriceBreakSerializer(
     part_detail = SupplierPartSerializer(
         source='part', brief=True, many=False, read_only=True, allow_null=True
     )
+
+
+# [AGENT GENERATED CODE - REQUIREMENT: US1, US2, US5]
+class VendorCategorySerializer(InvenTreeModelSerializer):
+    """Serializer for VendorCategory model."""
+
+    class Meta:
+        """Metaclass options."""
+
+        model = VendorCategory
+        fields = [
+            'pk',
+            'name',
+            'description', 
+            'parent',
+            'is_active',
+            'full_name',
+            'company_count',
+            'can_delete',
+        ]
+
+    @staticmethod
+    def annotate_queryset(queryset):
+        """Annotate the supplied queryset."""
+        queryset = queryset.annotate(
+            company_count=SubqueryCount('companies')
+        )
+        return queryset
+
+    full_name = serializers.CharField(read_only=True)
+    company_count = serializers.IntegerField(read_only=True)
+    
+    can_delete = serializers.SerializerMethodField()
+    
+    def get_can_delete(self, obj):
+        """Check if this vendor category can be deleted."""
+        can_delete, reason = obj.can_delete()
+        return {
+            'can_delete': can_delete,
+            'reason': reason
+        }
+
+    def validate_name(self, value):
+        """Validate the vendor category name."""
+        # [AGENT GENERATED CODE - REQUIREMENT: US5] - Data validation
+        if not value or not value.strip():
+            raise serializers.ValidationError(_('Vendor category name cannot be empty'))
+        
+        # Check for duplicate names (case-insensitive)
+        if VendorCategory.objects.filter(name__iexact=value.strip()).exists():
+            if not self.instance or self.instance.name.lower() != value.lower():
+                raise serializers.ValidationError(_('A vendor category with this name already exists'))
+        
+        return value.strip()
+
+    def validate_parent(self, value):
+        """Validate the parent category."""
+        # [AGENT GENERATED CODE - REQUIREMENT: US5] - Data validation  
+        if value and self.instance:
+            if value.pk == self.instance.pk:
+                raise serializers.ValidationError(_('Category cannot be its own parent'))
+            
+            # Check for circular references
+            parent = value
+            while parent:
+                if parent.pk == self.instance.pk:
+                    raise serializers.ValidationError(_('Circular parent relationship detected'))
+                parent = parent.parent
+        
+        return value
+
+
+class VendorCategoryBriefSerializer(InvenTreeModelSerializer):
+    """Brief serializer for VendorCategory model (for dropdown lists)."""
+
+    class Meta:
+        """Metaclass options."""
+
+        model = VendorCategory  
+        fields = [
+            'pk',
+            'name',
+            'full_name', 
+            'is_active',
+        ]
+
+    full_name = serializers.CharField(read_only=True)
+# [END AGENT GENERATED CODE]
+
+
+# [AGENT SUMMARY: See requirement IDs US1, US2, US5 for agent run change_impact_analysis_review_final]

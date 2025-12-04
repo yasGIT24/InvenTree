@@ -10,6 +10,9 @@ class RuleSetEnum(StringEnum):
     """Enumeration of ruleset names."""
 
     ADMIN = 'admin'
+    # [AGENT GENERATED CODE - REQUIREMENT: US1, US2]
+    COMPANY = 'company'
+    # [END AGENT GENERATED CODE - REQUIREMENT: US1, US2]
     PART_CATEGORY = 'part_category'
     PART = 'part'
     STOCK_LOCATION = 'stock_location'
@@ -24,6 +27,9 @@ class RuleSetEnum(StringEnum):
 # These are used to determine the permissions available to a group of users.
 RULESET_CHOICES = [
     (RuleSetEnum.ADMIN, _('Admin')),
+    # [AGENT GENERATED CODE - REQUIREMENT: US1, US2]
+    (RuleSetEnum.COMPANY, _('Company Management')),
+    # [END AGENT GENERATED CODE - REQUIREMENT: US1, US2]
     (RuleSetEnum.PART_CATEGORY, _('Part Categories')),
     (RuleSetEnum.PART, _('Parts')),
     (RuleSetEnum.STOCK_LOCATION, _('Stock Locations')),
@@ -93,6 +99,18 @@ def get_ruleset_models() -> dict:
             'django_mailbox_messageattachment',
             'django_mailbox_message',
         ],
+        # [AGENT GENERATED CODE - REQUIREMENT: US1, US2]
+        RuleSetEnum.COMPANY: [
+            'company_company',
+            'company_contact',
+            'company_address',
+            'company_manufacturerpart',
+            'company_manufacturerpartparameter',
+            'company_supplierpart',
+            'company_supplierpricebreak',
+            'company_vendorcategory',  # Add vendor category to company management
+        ],
+        # [END AGENT GENERATED CODE - REQUIREMENT: US1, US2]
         RuleSetEnum.PART_CATEGORY: [
             'part_partcategory',
             'part_partcategoryparametertemplate',
@@ -141,6 +159,9 @@ def get_ruleset_models() -> dict:
             'company_manufacturerpartparameter',
             'company_supplierpart',
             'company_supplierpricebreak',
+            # [AGENT GENERATED CODE - REQUIREMENT: US1, US2]
+            'company_vendorcategory',  # Add vendor category permissions to purchase orders
+            # [END AGENT GENERATED CODE - REQUIREMENT: US1, US2]
             'order_purchaseorder',
             'order_purchaseorderlineitem',
             'order_purchaseorderextraline',
@@ -211,3 +232,6 @@ def get_ruleset_ignore() -> list[str]:
         'importer_dataimportcolumnmap',
         'importer_dataimportrow',
     ]
+
+
+# [AGENT SUMMARY: See requirement IDs US1, US2, US6 for agent run change_impact_analysis_review_final]

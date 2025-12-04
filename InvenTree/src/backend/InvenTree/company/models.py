@@ -232,6 +232,18 @@ class Company(
         help_text=_('Company Tax ID'),
     )
 
+    # [AGENT GENERATED CODE - REQUIREMENT: US1, US2] - Vendor category relationship
+    vendor_category = models.ForeignKey(
+        'VendorCategory',
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='companies',
+        verbose_name=_('Vendor Category'),
+        help_text=_('Category for organizing this vendor/supplier')
+    )
+    # [END AGENT GENERATED CODE]
+
     @property
     def address(self):
         """Return the string representation for the primary address.
@@ -1100,6 +1112,121 @@ def after_save_supplier_price(sender, instance, created, **kwargs):
         and instance.part.part
     ):
         instance.part.part.schedule_pricing_update(create=True)
+
+
+# [AGENT SUMMARY: See requirement IDs US1, US2, US5 for agent run change_impact_analysis_review_final]
+
+
+# [AGENT GENERATED CODE - REQUIREMENT: US1, US2, US5]
+class VendorCategory(InvenTree.models.InvenTreeMetadataModel):
+    """Model to categorize vendors/suppliers into groups for better organization.
+    
+    This allows users to organize suppliers into categories like:
+    - Electronics Components
+    - Raw Materials  
+    - Manufacturing Services
+    - Packaging Suppliers
+    etc.
+    
+    Attributes:
+        name: Unique name for the vendor category
+        description: Optional description of the category
+        parent: Optional parent category for hierarchical organization
+        is_active: Whether this category is currently active
+    """
+
+    class Meta:
+        """Metaclass defines extra model options."""
+        
+        ordering = ['name']
+        verbose_name = _('Vendor Category')
+        verbose_name_plural = _('Vendor Categories')
+        constraints = [
+            UniqueConstraint(fields=['name'], name='unique_vendor_category_name')
+        ]
+
+    @staticmethod
+    def get_api_url():
+        """Return the API URL associated with the VendorCategory model."""
+        return reverse('api-vendor-category-list')
+
+    def can_delete(self):
+        """Check if this vendor category can be deleted.
+        
+        Returns:
+            tuple: (can_delete: bool, reason: str)
+        """
+        # [AGENT GENERATED CODE - REQUIREMENT: US1] - Deletion validation logic
+        companies_using = Company.objects.filter(vendor_category=self).count()
+        if companies_using > 0:
+            return False, f'Cannot delete category: {companies_using} companies are using this category'
+        return True, 'Category can be safely deleted'
+
+    def clean(self):
+        """Validate the vendor category data."""
+        super().clean()
+        # [AGENT GENERATED CODE - REQUIREMENT: US5] - Data validation
+        if self.parent and self.parent.pk == self.pk:
+            raise ValidationError(_('Category cannot be its own parent'))
+        
+        # Check for circular parent relationships
+        parent = self.parent
+        while parent:
+            if parent.pk == self.pk:
+                raise ValidationError(_('Circular parent relationship detected'))
+            parent = parent.parent
+
+    name = models.CharField(
+        max_length=100,
+        blank=False,
+        unique=True,
+        help_text=_('Vendor category name'),
+        verbose_name=_('Category name'),
+        validators=[InvenTree.validators.validate_overage_field]
+    )
+
+    description = models.CharField(
+        max_length=500,
+        verbose_name=_('Description'),
+        help_text=_('Description of the vendor category'),
+        blank=True,
+    )
+
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        related_name='subcategories',
+        verbose_name=_('Parent category'),
+        help_text=_('Parent vendor category for hierarchical organization')
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name=_('Active'),
+        help_text=_('Is this vendor category active?')
+    )
+
+    def __str__(self):
+        """String representation."""
+        return self.name
+
+    @property
+    def full_name(self):
+        """Return the full hierarchical name of the category."""
+        if self.parent:
+            return f'{self.parent.full_name} > {self.name}'
+        return self.name
+
+    def get_companies(self):
+        """Return all companies in this category."""
+        return Company.objects.filter(vendor_category=self)
+
+    def get_company_count(self):
+        """Return the count of companies in this category."""
+        return self.get_companies().count()
+# [END AGENT GENERATED CODE]
 
 
 @receiver(
