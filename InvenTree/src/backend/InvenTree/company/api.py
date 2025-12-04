@@ -3,6 +3,7 @@
 from django.db.models import Q
 from django.urls import include, path
 from django.utils.translation import gettext_lazy as _
+from rest_framework.exceptions import PermissionDenied
 
 from django_filters import rest_framework as rest_filters
 
@@ -49,6 +50,20 @@ class CompanyList(DataExportViewMixin, ListCreateAPI):
         """Return annotated queryset for the company list endpoint."""
         queryset = super().get_queryset()
         return CompanySerializer.annotate_queryset(queryset)
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:US2-AC1,US2-AC2,US2-AC3,US6-AC1,US6-AC2]
+    def create(self, request, *args, **kwargs):
+        """Create a new Company instance.
+        
+        - Validates user permissions
+        - Validates company data
+        - Prevents duplicate companies
+        """
+        # Check if user has permission to create companies
+        if not request.user.has_perm('company.add_company'):
+            raise PermissionDenied(_('User does not have permission to create companies'))
+            
+        return super().create(request, *args, **kwargs)
 
     filter_backends = SEARCH_ORDER_FILTER
 
@@ -79,6 +94,26 @@ class CompanyDetail(RetrieveUpdateDestroyAPI):
         queryset = CompanySerializer.annotate_queryset(queryset)
 
         return queryset
+        
+    # [AGENT GENERATED CODE - REQUIREMENT:US1-AC1,US1-AC2,US1-AC3,US6-AC1,US6-AC2]
+    def destroy(self, request, *args, **kwargs):
+        """Delete a company instance, with validation.
+        
+        Ensures that:
+        1. Company in use cannot be deleted
+        2. User has appropriate permissions to delete companies
+        """
+        instance = self.get_object()
+        serializer = self.get_serializer(instance=instance)
+        
+        # Check if user has permission to delete companies
+        if not request.user.has_perm('company.delete_company'):
+            raise PermissionDenied(_('User does not have permission to delete companies'))
+        
+        # Run validation for deletion
+        serializer.validate_delete(instance)
+        
+        return super().destroy(request, *args, **kwargs)
 
 
 class ContactList(DataExportViewMixin, ListCreateDestroyAPIView):

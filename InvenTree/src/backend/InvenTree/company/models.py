@@ -274,6 +274,34 @@ class Company(
         if self.image:
             return InvenTree.helpers.getMediaUrl(self.image.url)
         return InvenTree.helpers.getBlankImage()
+        
+    # [AGENT GENERATED CODE - REQUIREMENT:US1-AC2,US1-AC3]
+    def can_delete(self):
+        """Check if this company can be deleted.
+        
+        Returns:
+            bool: True if company can be deleted, False otherwise
+            str: Error message if company cannot be deleted
+        """
+        
+        # Check if company is a supplier with supplied parts
+        if self.is_supplier and self.supplied_parts.exists():
+            return False, _('Cannot delete company that is a supplier for parts')
+        
+        # Check if company is a manufacturer with manufacturer parts
+        if self.is_manufacturer and self.manufactured_parts.exists():
+            return False, _('Cannot delete company that is a manufacturer for parts')
+        
+        # Check if company is a customer with sales orders
+        if self.is_customer:
+            if hasattr(self, 'sales_orders') and self.sales_orders.exists():
+                return False, _('Cannot delete company that has sales orders')
+        
+        # Check if company has purchase orders
+        if hasattr(self, 'purchase_orders') and self.purchase_orders.exists():
+            return False, _('Cannot delete company that has purchase orders')
+        
+        return True, ''
 
     def get_thumbnail_url(self):
         """Return the URL for the thumbnail image for this Company."""
@@ -1006,7 +1034,13 @@ class SupplierPart(
 
         Subtract partially received stock as appropriate
         """
-        totals = self.open_orders().aggregate(Sum('quantity'), Sum('received'))
+        # [AGENT GENERATED CODE - REQUIREMENT:US4-AC2]
+        # Exclude cancelled orders when calculating on-order quantity
+        from order.status_codes import PurchaseOrderStatus
+        
+        totals = self.open_orders().exclude(
+            order__status=PurchaseOrderStatus.CANCELLED.value
+        ).aggregate(Sum('quantity'), Sum('received'))
 
         # Quantity on order
         q = totals.get('quantity__sum', 0)

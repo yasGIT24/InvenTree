@@ -93,3 +93,62 @@ def validate_sales_order_reference(value):
 
 def validate_tree_name(value):
     """Placeholder for legacy function used in migrations."""
+
+
+# [AGENT GENERATED CODE - REQUIREMENT:US5-AC1,US5-AC2]
+def validate_inventory_data(data, field_map=None):
+    """Validate inventory data for operations across the system.
+    
+    This function provides comprehensive data integrity validation for inventory operations.
+    
+    Args:
+        data: Dictionary containing data to validate
+        field_map: Optional mapping of field names to validation functions
+        
+    Returns:
+        True if validation passes
+        
+    Raises:
+        ValidationError: If validation fails
+    """
+    errors = {}
+    
+    # Basic validation of common fields
+    if 'quantity' in data:
+        try:
+            quantity = float(data['quantity'])
+            if quantity < 0:
+                errors['quantity'] = _('Quantity must be a positive number')
+        except (ValueError, TypeError):
+            errors['quantity'] = _('Quantity must be a valid number')
+    
+    # Validate serialized items have quantity=1
+    if 'serial' in data and data.get('serial') and 'quantity' in data:
+        try:
+            quantity = float(data['quantity'])
+            if quantity != 1:
+                errors['quantity'] = _('Quantity must be 1 for serialized items')
+        except (ValueError, TypeError):
+            errors['quantity'] = _('Quantity must be a valid number')
+    
+    # Validate part numbers/SKUs if provided
+    if 'SKU' in data and not data.get('SKU', '').strip():
+        errors['SKU'] = _('SKU cannot be blank')
+    
+    # Validate supplier part references if provided
+    if 'MPN' in data and not data.get('MPN', '').strip():
+        errors['MPN'] = _('Manufacturer part number cannot be blank')
+    
+    # Run custom field validations if provided
+    if field_map:
+        for field, validator in field_map.items():
+            if field in data and validator and callable(validator):
+                try:
+                    validator(data[field])
+                except ValidationError as e:
+                    errors[field] = str(e)
+    
+    if errors:
+        raise ValidationError(errors)
+    
+    return True

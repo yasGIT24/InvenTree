@@ -286,7 +286,9 @@ class PurchaseOrderFilter(OrderFilter):
         """Metaclass options."""
 
         model = models.PurchaseOrder
-        fields = ['supplier']
+        # [AGENT GENERATED CODE - REQUIREMENT:US4-AC1,US4-AC3]
+        # Include status field to allow filtering by cancelled status
+        fields = ['supplier', 'status']
 
     part = rest_filters.ModelChoiceFilter(
         queryset=Part.objects.all(),
@@ -1069,7 +1071,41 @@ class SalesOrderLineItemList(
 
 
 class SalesOrderLineItemDetail(SalesOrderLineItemMixin, RetrieveUpdateDestroyAPI):
-    """API endpoint for detail view of a SalesOrderLineItem object."""
+    """API endpoint for detail view of a SalesOrderLineItem object.
+    
+    Supports detailed editing of line items including quantity, price and product code.
+    """
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:US3-AC1,US3-AC2,US3-AC3]
+    def update(self, request, *args, **kwargs):
+        """Update a SalesOrderLineItem instance.
+        
+        - Validates data via the serializer
+        - Updates the SalesOrderLineItem 
+        - Recalculates order totals
+        - Records changes in the event system
+        """
+        from order.events import SalesOrderEvents
+        from plugin.events import trigger_event
+        
+        response = super().update(request, *args, **kwargs)
+        
+        if response.status_code == 200:
+            line_item = self.get_object()
+            order = line_item.order
+            
+            # Recalculate order totals
+            order.update_total_price(commit=True)
+            
+            # Trigger an event for the updated line item
+            trigger_event(
+                SalesOrderEvents.LINE_ITEM_EDITED,
+                id=order.pk,
+                line_item_id=line_item.pk,
+                user_id=request.user.pk if request.user else None
+            )
+            
+        return response
 
 
 class SalesOrderExtraLineList(GeneralExtraLineList, ListCreateAPI):

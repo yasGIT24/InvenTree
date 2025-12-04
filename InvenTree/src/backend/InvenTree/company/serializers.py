@@ -229,6 +229,79 @@ class CompanySerializer(
             company.image.save(filename, ContentFile(buffer.getvalue()))
 
         return self.instance
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:US1-AC1,US1-AC3]
+    def validate_delete(self, instance):
+        """Validate that this company can be deleted.
+        
+        Args:
+            instance: Company instance to be deleted
+            
+        Raises:
+            ValidationError: If the company cannot be deleted
+        """
+        can_delete, error_message = instance.can_delete()
+        
+        if not can_delete:
+            raise serializers.ValidationError({
+                'company': error_message
+            })
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:US2-AC1,US2-AC2,US5-AC1]
+    def validate(self, data):
+        """Validate the company data.
+        
+        Ensures:
+        - Company name is unique when combined with email
+        - Required fields are present
+        - Prevents duplicate entries
+        
+        Args:
+            data: The data to validate
+            
+        Returns:
+            The validated data
+            
+        Raises:
+            ValidationError: If validation fails
+        """
+        data = super().validate(data)
+        
+        # Get the company name and email from the data
+        name = data.get('name', '')
+        email = data.get('email', None)
+        
+        if not name:
+            raise serializers.ValidationError({
+                'name': _('Company name is required')
+            })
+        
+        # Check for duplicates
+        queryset = Company.objects.filter(name=name)
+        
+        if email:
+            queryset = queryset.filter(email=email)
+        
+        # If this is an update operation, exclude the current instance
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        
+        if queryset.exists():
+            raise serializers.ValidationError({
+                'name': _('A company with this name already exists')
+            })
+        
+        # Validate company role flags
+        is_supplier = data.get('is_supplier', False)
+        is_manufacturer = data.get('is_manufacturer', False)
+        is_customer = data.get('is_customer', False)
+        
+        if not any([is_supplier, is_manufacturer, is_customer]):
+            raise serializers.ValidationError({
+                'is_supplier': _('Company must have at least one role (supplier, manufacturer, or customer)')
+            })
+        
+        return data
 
 
 @register_importer()

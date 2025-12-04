@@ -27,6 +27,9 @@ class SalesOrderEvents(BaseEventEnum):
     OVERDUE = 'order.overdue_sales_order'
 
     SHIPMENT_COMPLETE = 'salesordershipment.completed'
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:US3-AC3]
+    LINE_ITEM_EDITED = 'salesorderlineitem.edited'
 
 
 class ReturnOrderEvents(BaseEventEnum):

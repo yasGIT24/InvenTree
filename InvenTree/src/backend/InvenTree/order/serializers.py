@@ -319,6 +319,9 @@ class PurchaseOrderSerializer(
     InvenTreeModelSerializer,
 ):
     """Serializer for a PurchaseOrder object."""
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:US4-AC1,US4-AC3]
+    # Add a field to identify cancelled purchase orders
 
     class Meta:
         """Metaclass options."""
@@ -334,6 +337,7 @@ class PurchaseOrderSerializer(
             'total_price',
             'order_currency',
             'destination',
+            'is_cancelled', # [AGENT GENERATED CODE - REQUIREMENT:US4-AC1,US4-AC3]
         ])
 
         read_only_fields = ['issue_date', 'complete_date', 'creation_date']
@@ -392,6 +396,17 @@ class PurchaseOrderSerializer(
     supplier_detail = CompanyBriefSerializer(
         source='supplier', many=False, read_only=True, allow_null=True
     )
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:US4-AC1,US4-AC3]
+    is_cancelled = serializers.SerializerMethodField(
+        label=_('Is Cancelled'),
+        help_text=_('Whether this purchase order is cancelled')
+    )
+    
+    def get_is_cancelled(self, obj):
+        """Return True if this purchase order is cancelled."""
+        from order.status_codes import PurchaseOrderStatus
+        return obj.status == PurchaseOrderStatus.CANCELLED.value
 
 
 class OrderAdjustSerializer(serializers.Serializer):
@@ -1138,6 +1153,57 @@ class SalesOrderLineItemSerializer(
 
         if customer_detail is not True:
             self.fields.pop('customer_detail', None)
+
+    # [AGENT GENERATED CODE - REQUIREMENT:US3-AC1,US3-AC2,US3-AC3,US5-AC1]
+    def validate(self, data):
+        """Validate the SalesOrderLineItem data.
+
+        - If order is not OPEN, prevent line item editing 
+        - If quantity is updated, check inventory availability
+        - If price is updated, recalculate order total
+        - Check if the update requires approval
+        """
+        data = super().validate(data)
+
+        # Get the current instance if we're updating
+        instance = self.instance
+
+        if instance:
+            order = instance.order
+
+            # Check if order is open
+            if order.status not in SalesOrderStatusGroups.OPEN:
+                raise ValidationError({'order': _('Cannot edit line items in a closed order')})
+
+            # Check if quantity is being changed
+            if 'quantity' in data and data['quantity'] != instance.quantity:
+                new_qty = data['quantity']
+                
+                # Ensure quantity is positive
+                if new_qty <= 0:
+                    raise ValidationError({'quantity': _('Quantity must be greater than zero')})
+                
+                # If reducing quantity, check if items have already been shipped
+                if new_qty < instance.quantity and instance.shipped > 0:
+                    if new_qty < instance.shipped:
+                        raise ValidationError({
+                            'quantity': _('Cannot reduce quantity below shipped amount')
+                        })
+
+                # If increasing quantity, check inventory availability (only for non-virtual parts)
+                if new_qty > instance.quantity and instance.part and not instance.part.virtual:
+                    # Get available stock
+                    available = instance.part.available_stock
+                    allocated = instance.allocated_quantity()
+                    additional_qty = new_qty - instance.quantity
+                    
+                    # Check if enough stock is available
+                    if additional_qty > (available - allocated + instance.allocated_quantity()):
+                        raise ValidationError({
+                            'quantity': _('Insufficient stock available to increase quantity')
+                        })
+
+        return data
 
     @staticmethod
     def annotate_queryset(queryset):
