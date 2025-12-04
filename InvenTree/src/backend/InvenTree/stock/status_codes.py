@@ -24,6 +24,8 @@ class StockStatus(StatusCode):
         _('Returned'),
         ColorEnum.warning,
     )  # Item has been returned from a customer
+    EXPIRY_NEAR = 90, _('Expiry approaching'), ColorEnum.warning  # Item is approaching expiry date
+    EXPIRED = 95, _('Expired'), ColorEnum.danger  # Item has expired
 
 
 class StockStatusGroups:
@@ -35,6 +37,13 @@ class StockStatusGroups:
         StockStatus.ATTENTION.value,
         StockStatus.DAMAGED.value,
         StockStatus.RETURNED.value,
+        StockStatus.EXPIRY_NEAR.value,
+    ]
+    
+    # The following codes correspond to parts that have expiry status
+    EXPIRY_CODES = [
+        StockStatus.EXPIRY_NEAR.value,
+        StockStatus.EXPIRED.value,
     ]
 
 

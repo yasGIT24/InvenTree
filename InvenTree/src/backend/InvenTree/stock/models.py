@@ -539,6 +539,14 @@ class StockItem(
         & ~Q(expiry_date=None)
         & Q(expiry_date__lt=InvenTree.helpers.current_date())
     )
+    
+    # A query filter which can be used to filter StockItem objects which are approaching expiry date
+    EXPIRY_NEAR_FILTER = (
+        IN_STOCK_FILTER
+        & ~Q(expiry_date=None)
+        & Q(expiry_date__gt=InvenTree.helpers.current_date())
+        & Q(expiry_date__lt=InvenTree.helpers.current_date() + timedelta(days=lambda: get_global_setting('STOCK_STALE_DAYS', 30)))
+    )
 
     @classmethod
     def _create_serial_numbers(cls, serials: list, **kwargs) -> QuerySet:
@@ -1294,7 +1302,14 @@ class StockItem(
 
         expiry_date = today + timedelta(days=stale_days)
 
-        return self.expiry_date < expiry_date
+        is_stale = self.expiry_date < expiry_date
+        
+        # Update the status code if needed
+        if is_stale and self.status != StockStatus.EXPIRY_NEAR.value:
+            self.status = StockStatus.EXPIRY_NEAR.value
+            self.save()
+            
+        return is_stale
 
     def is_expired(self):
         """Returns True if this StockItem is "expired".
@@ -1312,7 +1327,14 @@ class StockItem(
 
         today = InvenTree.helpers.current_date()
 
-        return self.expiry_date < today
+        is_expired = self.expiry_date < today
+        
+        # Update the status code if needed
+        if is_expired and self.status != StockStatus.EXPIRED.value:
+            self.status = StockStatus.EXPIRED.value
+            self.save()
+            
+        return is_expired
 
     def clearAllocations(self):
         """Clear all order allocations for this StockItem.
@@ -1721,6 +1743,7 @@ class StockItem(
         check_status: bool = True,
         check_quantity: bool = True,
         check_in_production: bool = True,
+        check_expiry: bool = True,
     ) -> bool:
         """Return True if this StockItem is "in stock".
 
@@ -1728,6 +1751,7 @@ class StockItem(
             check_status: If True, check the status of the StockItem. Defaults to True.
             check_quantity: If True, check the quantity of the StockItem. Defaults to True.
             check_in_production: If True, check if the item is in production. Defaults to True.
+            check_expiry: If True, check if the item is expired. Defaults to True.
         """
         if check_status and self.status not in StockStatusGroups.AVAILABLE_CODES:
             return False
@@ -1737,6 +1761,15 @@ class StockItem(
 
         if check_in_production and self.is_building:
             return False
+            
+        if check_expiry and self.expiry_date is not None:
+            today = InvenTree.helpers.current_date()
+            if self.expiry_date < today:
+                # Item is expired - update status if needed
+                if self.status != StockStatus.EXPIRED.value:
+                    self.status = StockStatus.EXPIRED.value
+                    self.save()
+                return False
 
         return all([
             self.sales_order is None,  # Not assigned to a SalesOrder
@@ -1752,6 +1785,20 @@ class StockItem(
 
         See also: StockItem.IN_STOCK_FILTER for the db optimized version of this check.
         """
+        # Check if item is expired
+        if self.expiry_date is not None:
+            today = InvenTree.helpers.current_date()
+            
+            # Check for expired status
+            if self.expiry_date < today and self.status != StockStatus.EXPIRED.value:
+                self.status = StockStatus.EXPIRED.value
+                self.save()
+                
+            # Check for approaching expiry
+            elif self.is_stale() and self.status != StockStatus.EXPIRY_NEAR.value:
+                self.status = StockStatus.EXPIRY_NEAR.value
+                self.save()
+                
         return self.is_in_stock(check_status=True)
 
     @property

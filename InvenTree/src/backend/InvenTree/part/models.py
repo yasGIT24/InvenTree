@@ -1208,6 +1208,49 @@ class Part(
         help_text=_('Minimum allowed stock level'),
     )
 
+    # Dynamic inventory parameters for SKU management
+    safety_stock = models.DecimalField(
+        max_digits=19,
+        decimal_places=6,
+        default=0,
+        validators=[MinValueValidator(0)],
+        verbose_name=_('Safety Stock'),
+        help_text=_('Safety stock level for enhanced inventory control'),
+    )
+    
+    lead_time = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_('Lead Time'),
+        help_text=_('Lead time for part procurement (days)'),
+    )
+
+    reorder_quantity = models.DecimalField(
+        max_digits=19,
+        decimal_places=6,
+        default=0,
+        validators=[MinValueValidator(0)],
+        verbose_name=_('Reorder Quantity'),
+        help_text=_('Recommended reorder quantity'),
+    )
+
+    minimum_order_quantity = models.DecimalField(
+        max_digits=19,
+        decimal_places=6,
+        default=0,
+        validators=[MinValueValidator(0)],
+        verbose_name=_('Minimum Order Quantity'),
+        help_text=_('Minimum allowed order quantity'),
+    )
+    
+    maximum_stock_level = models.DecimalField(
+        max_digits=19,
+        decimal_places=6,
+        default=0,
+        validators=[MinValueValidator(0)],
+        verbose_name=_('Maximum Stock Level'),
+        help_text=_('Maximum allowed stock level'),
+    )
+
     units = models.CharField(
         max_length=20,
         default='',
