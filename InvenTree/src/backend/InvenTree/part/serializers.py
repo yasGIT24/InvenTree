@@ -82,6 +82,7 @@ class CategorySerializer(
             'structural',
             'icon',
             'parent_default_location',
+            'can_delete',
         ]
         read_only_fields = ['level', 'pathstring']
 
@@ -149,6 +150,15 @@ class CategorySerializer(
     )
 
     parent_default_location = serializers.IntegerField(read_only=True, allow_null=True)
+    
+    can_delete = serializers.SerializerMethodField()
+    
+    def get_can_delete(self, category) -> bool:
+        """Return True if the category can be deleted.
+        
+        A category can be deleted if it contains no parts and no subcategories.
+        """
+        return not (category.parts.exists() or category.children.exists())
 
 
 class CategoryTree(InvenTree.serializers.InvenTreeModelSerializer):

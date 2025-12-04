@@ -271,7 +271,13 @@ class CategoryDetail(CategoryMixin, CustomRetrieveUpdateDestroyAPI):
         return response
 
     def destroy(self, request, *args, **kwargs):
-        """Delete a Part category instance via the API."""
+        """Delete a Part category instance via the API.
+        
+        Before deleting, checks if the category is in use. If it is, returns an error response
+        with appropriate messages.
+        """
+        category = self.get_object()
+        
         delete_parts = (
             'delete_parts' in request.data and request.data['delete_parts'] == '1'
         )
@@ -279,6 +285,35 @@ class CategoryDetail(CategoryMixin, CustomRetrieveUpdateDestroyAPI):
             'delete_child_categories' in request.data
             and request.data['delete_child_categories'] == '1'
         )
+        
+        # If delete_parts and delete_child_categories are both True, we can skip validation
+        # Otherwise, check if the category can be deleted
+        if not (delete_parts and delete_child_categories):
+            try:
+                # Test if the category is in use
+                # This will raise a ValidationError if parts or child categories exist
+                if not delete_parts:
+                    if category.parts.exists():
+                        return Response(
+                            {
+                                'error': _('Cannot delete vendor category: parts are assigned to this category'),
+                                'part_count': category.parts.count(),
+                            },
+                            status=400
+                        )
+                
+                if not delete_child_categories:
+                    if category.children.exists():
+                        return Response(
+                            {
+                                'error': _('Cannot delete vendor category: it contains child categories'),
+                                'child_categories_count': category.children.count(),
+                            },
+                            status=400
+                        )
+            except Exception as e:
+                return Response({'error': str(e)}, status=400)
+        
         return super().destroy(
             request,
             *args,

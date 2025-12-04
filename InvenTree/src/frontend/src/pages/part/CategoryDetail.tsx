@@ -202,15 +202,25 @@ export default function CategoryDetail() {
         label: t`Parts Action`,
         description: t`Action for parts in this category`,
         choices: deleteOptions,
-        field_type: 'choice'
+        field_type: 'choice',
+        // Only required if parts exist in the category
+        required: category?.part_count > 0
       },
       delete_child_categories: {
         label: t`Child Categories Action`,
         description: t`Action for child categories in this category`,
         choices: deleteOptions,
-        field_type: 'choice'
+        field_type: 'choice',
+        // Only required if subcategories exist
+        required: category?.subcategories > 0
       }
     },
+    preFormWarnings: category?.part_count > 0 || category?.subcategories > 0 ?
+      [
+        category?.part_count > 0 ? t`This category contains ${category?.part_count} parts.` : '',
+        category?.subcategories > 0 ? t`This category contains ${category?.subcategories} subcategories.` : '',
+        t`You must specify what to do with these items before deleting the category.`
+      ].filter(Boolean) : [],
     onFormSuccess: () => {
       if (category.parent) {
         navigate(getDetailUrl(ModelType.partcategory, category.parent));
@@ -247,7 +257,15 @@ export default function CategoryDetail() {
           DeleteItemAction({
             hidden: !id || !user.hasDeleteRole(UserRoles.part_category),
             tooltip: t`Delete Part Category`,
-            onClick: () => deleteCategory.open()
+            onClick: () => deleteCategory.open(),
+            disabled: !category.can_delete,
+            disabledTooltip: !category.can_delete ? 
+              (category?.part_count > 0 && category?.subcategories > 0) ? 
+                t`Cannot delete: category contains both parts and subcategories` : 
+                category?.part_count > 0 ? 
+                  t`Cannot delete: category contains parts` : 
+                  t`Cannot delete: category contains subcategories` 
+              : undefined
           })
         ]}
       />
@@ -260,7 +278,8 @@ export default function CategoryDetail() {
         name: 'details',
         label: t`Category Details`,
         icon: <IconInfoCircle />,
-        content: detailsPanel
+        content: detailsPanel,
+        showIf: () => true
       },
       {
         name: 'subcategories',

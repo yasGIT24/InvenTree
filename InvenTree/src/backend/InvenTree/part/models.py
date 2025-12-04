@@ -103,6 +103,9 @@ class PartCategory(
 
         This must be handled within a transaction.atomic(), otherwise the tree structure is damaged
         """
+        # Check if this category is in use before allowing deletion
+        self.check_if_category_in_use()
+        
         super().delete(
             delete_children=kwargs.get('delete_child_categories', False),
             delete_items=kwargs.get('delete_parts', False),
@@ -334,6 +337,23 @@ class PartCategory(
             # Note that this won't actually stop the user being subscribed,
             # if the user is subscribed to a parent category
             PartCategoryStar.objects.filter(category=self, user=user).delete()
+            
+    def check_if_category_in_use(self):
+        """Check if this category is in use before allowing deletion.
+        
+        A category is considered 'in use' if any of the following are true:
+        - It has child categories (and delete_child_categories is False)
+        - It has parts assigned to it (and delete_parts is False)
+        
+        If the category is in use, a ValidationError is raised, preventing deletion.
+        """
+        # Check if there are parts directly assigned to this category
+        if self.parts.exists():
+            raise ValidationError(_("Cannot delete vendor category: parts are assigned to this category"))
+            
+        # Check if there are child categories
+        if self.children.exists():
+            raise ValidationError(_("Cannot delete vendor category: it contains child categories"))
 
 
 def rename_part_image(instance, filename):

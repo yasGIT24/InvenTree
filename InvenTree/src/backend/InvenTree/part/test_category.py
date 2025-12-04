@@ -2,6 +2,10 @@
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.urls import reverse
+
+from rest_framework import status
+from rest_framework.test import APITestCase
 
 from common.models import InvenTreeSetting
 
@@ -485,3 +489,91 @@ class CategoryTest(TestCase):
         cat.icon = ''
         cat.save()
         self.assertIn(cat.icon, ['', None])
+        
+    def test_category_validation(self):
+        """Test that categories cannot be deleted if they are in use."""
+        # Create a new test category
+        cat = PartCategory.objects.create(name='Test Category for Validation')
+        
+        # Should be able to delete initially
+        try:
+            cat.delete()
+            # Successfully deleted
+            cat = PartCategory.objects.create(name='Test Category for Validation')
+        except ValidationError:
+            self.fail("Category deletion should not raise ValidationError when empty")
+            
+        # Add a part to the category
+        part = Part.objects.create(name='Test Part', description='A test part', category=cat)
+        
+        # Should not be able to delete now
+        with self.assertRaises(ValidationError):
+            cat.delete()
+            
+        # Delete the part and add a child category
+        part.delete()
+        child_cat = PartCategory.objects.create(name='Child Category', parent=cat)
+        
+        # Should not be able to delete now
+        with self.assertRaises(ValidationError):
+            cat.delete()
+            
+        # Clean up
+        child_cat.delete()
+        cat.delete()
+
+
+class CategoryAPITest(APITestCase):
+    """Tests for the Part Category API endpoints."""
+    
+    fixtures = ['category', 'part', 'location', 'params']
+    
+    def setUp(self):
+        """Set up for tests."""
+        super().setUp()
+        self.url = reverse('api-part-category-list')
+        user = self.client.login(username='admin', password='password')
+    
+    def test_category_delete_validation(self):
+        """Test that categories cannot be deleted via API if they are in use."""
+        # Create a test category
+        response = self.client.post(self.url, {
+            'name': 'Test API Category',
+            'description': 'A test category'
+        })
+        
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        cat_id = response.data['pk']
+        
+        # Should be able to delete initially
+        delete_url = reverse('api-part-category-detail', kwargs={'pk': cat_id})
+        response = self.client.delete(delete_url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        
+        # Create the category again
+        response = self.client.post(self.url, {
+            'name': 'Test API Category',
+            'description': 'A test category'
+        })
+        
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        cat_id = response.data['pk']
+        delete_url = reverse('api-part-category-detail', kwargs={'pk': cat_id})
+        
+        # Add a part to the category
+        response = self.client.post(reverse('api-part-list'), {
+            'name': 'Test API Part',
+            'description': 'A test part',
+            'category': cat_id
+        })
+        
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        # Should not be able to delete the category now
+        response = self.client.delete(delete_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        
+        # But if we set delete_parts=1, it should work
+        response = self.client.delete(delete_url, {'delete_parts': '1'})
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
