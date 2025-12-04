@@ -296,6 +296,62 @@ class Company(
             Q(supplier_part__supplier=self.id)
             | Q(supplier_part__manufacturer_part__manufacturer=self.id)
         ).distinct()
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:REQ-007]
+    # Enhanced supplier and manufacturer tracking functionality
+    def get_company_summary(self):
+        """Return comprehensive company summary for REQ-007 support."""
+        return {
+            'company_id': self.pk,
+            'name': self.name,
+            'description': self.description,
+            'website': self.website,
+            'is_supplier': self.is_supplier,
+            'is_manufacturer': self.is_manufacturer,
+            'is_customer': self.is_customer,
+            'contact_info': {
+                'email': self.email,
+                'phone': self.phone,
+                'address': str(self.primary_address) if self.primary_address else None,
+            },
+            'currency': self.currency,
+            'active': self.active,
+            'contact_count': self.contacts.count(),
+            'part_count': self.supplied_parts.count() + self.manufactured_parts.count(),
+            'stock_items_count': self.stock_items.count(),
+        }
+    
+    def get_supplier_statistics(self):
+        """Return supplier-specific statistics for REQ-007 support."""
+        if not self.is_supplier:
+            return None
+        
+        from order.models import PurchaseOrder
+        purchase_orders = PurchaseOrder.objects.filter(supplier=self)
+        
+        return {
+            'supplier_parts_count': self.supplied_parts.count(),
+            'purchase_orders_total': purchase_orders.count(),
+            'active_orders': purchase_orders.filter(status__in=[10, 20, 30]).count(),
+            'completed_orders': purchase_orders.filter(status=40).count(),
+            'total_spent': sum(po.total_price.amount for po in purchase_orders if po.total_price),
+            'average_order_value': purchase_orders.aggregate(avg_value=models.Avg('total_price'))['avg_value'],
+        }
+    
+    def get_manufacturer_statistics(self):
+        """Return manufacturer-specific statistics for REQ-007 support."""
+        if not self.is_manufacturer:
+            return None
+        
+        return {
+            'manufactured_parts_count': self.manufactured_parts.count(),
+            'stock_items_manufactured': self.stock_items.count(),
+            'categories_manufactured': set(
+                part.part.category for part in self.manufactured_parts.select_related('part__category')
+                if part.part and part.part.category
+            ),
+        }
+    # [END AGENT GENERATED CODE - REQ-007 - AGENT_RUN_20241204_001]
 
 
 class Contact(InvenTree.models.InvenTreeMetadataModel):

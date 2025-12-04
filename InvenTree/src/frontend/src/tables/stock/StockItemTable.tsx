@@ -602,7 +602,12 @@ export function StockItemTable({
             ...params,
             part_detail: true,
             location_detail: true,
-            supplier_part_detail: true
+            supplier_part_detail: true,
+            // [AGENT GENERATED CODE - REQUIREMENT:REQ-001,REQ-004,REQ-008]
+            // Enhanced stock location tracking and stocktake functionality
+            location_hierarchy: true,
+            stocktake_details: true
+            // [END AGENT GENERATED CODE - REQ-001,REQ-004,REQ-008 - AGENT_RUN_20241204_001]
           }
         }}
       />

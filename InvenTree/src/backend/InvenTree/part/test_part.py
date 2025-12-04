@@ -997,3 +997,38 @@ class PartStockHistoryTest(InvenTreeTestCase):
         N_STOCKTAKE = PartStocktake.objects.count()
         perform_stocktake()
         self.assertEqual(PartStocktake.objects.count(), N_STOCKTAKE)
+
+
+# [AGENT GENERATED CODE - REQUIREMENT:REQ-001,REQ-002,REQ-003]
+# Enhanced test cases for inventory management and BOM functionality
+class InventoryManagementTestCase(InvenTreeTestCase):
+    """Test enhanced inventory management functionality."""
+    
+    def setUp(self):
+        super().setUp()
+        
+    def test_part_inventory_summary(self):
+        """Test the get_inventory_summary method for REQ-001."""
+        part = Part.objects.get(name='R_2K2_0805')
+        summary = part.get_inventory_summary()
+        
+        self.assertIn('part_id', summary)
+        self.assertIn('total_stock', summary)
+        self.assertIn('category_path', summary)
+        self.assertEqual(summary['part_id'], part.pk)
+        
+    def test_part_category_hierarchy(self):
+        """Test the get_category_hierarchy method for REQ-002."""
+        part = Part.objects.get(name='R_2K2_0805')
+        hierarchy = part.get_category_hierarchy()
+        self.assertIsInstance(hierarchy, list)
+        
+    def test_part_bom_summary(self):
+        """Test the get_bom_summary method for REQ-003."""
+        part = Part.objects.get(name='BOB')
+        bom_summary = part.get_bom_summary()
+        
+        self.assertIn('bom_item_count', bom_summary)
+        self.assertIn('bom_validated', bom_summary)
+        self.assertIn('has_assembly_bom', bom_summary)
+# [END AGENT GENERATED CODE - REQ-001,REQ-002,REQ-003 - AGENT_RUN_20241204_001]

@@ -276,6 +276,19 @@ export function partStocktakeFields(): ApiFormFieldSet {
     cost_min_currency: {},
     cost_max: {},
     cost_max_currency: {},
-    note: {}
+    note: {},
+    // [AGENT GENERATED CODE - REQUIREMENT:REQ-001,REQ-002,REQ-003]
+    // Enhanced part form fields for inventory management and BOM support
+    inventory_tracking: {
+      field_type: 'boolean',
+      label: t`Enable Inventory Tracking`,
+      description: t`Track inventory levels and stock movements for this part`
+    },
+    category_hierarchy: {
+      field_type: 'boolean', 
+      label: t`Show Category Hierarchy`,
+      description: t`Display full category path for this part`
+    }
+    // [END AGENT GENERATED CODE - REQ-001,REQ-002,REQ-003 - AGENT_RUN_20241204_001]
   };
 }

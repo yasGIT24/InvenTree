@@ -1216,6 +1216,44 @@ class PurchaseOrder(TotalPriceMixin, Order):
             ],
             user,
         )
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:REQ-005]
+    # Enhanced purchase order management functionality
+    def get_order_summary(self):
+        """Return comprehensive purchase order summary for REQ-005 support."""
+        return {
+            'order_id': self.pk,
+            'reference': self.reference,
+            'supplier': str(self.supplier) if self.supplier else None,
+            'status': self.get_status_display(),
+            'status_code': self.status,
+            'total_price': str(self.total_price) if self.total_price else '0',
+            'line_item_count': self.line_count(),
+            'completed_lines': self.completed_line_count(),
+            'pending_lines': self.pending_line_count(),
+            'is_complete': self.is_complete(),
+            'is_pending': self.is_pending(),
+            'creation_date': self.creation_date,
+            'target_date': self.target_date,
+            'responsible': str(self.responsible) if self.responsible else None,
+        }
+    
+    def get_supplier_summary(self):
+        """Return supplier information for purchase order for REQ-005 support."""
+        if not self.supplier:
+            return None
+        return {
+            'supplier_name': self.supplier.name,
+            'supplier_id': self.supplier.pk,
+            'contact_info': {
+                'email': self.supplier.email,
+                'phone': self.supplier.phone,
+                'website': self.supplier.website,
+            },
+            'address': str(self.supplier.primary_address) if self.supplier.primary_address else None,
+            'supplier_parts_count': self.supplier.supplied_parts.count(),
+        }
+    # [END AGENT GENERATED CODE - REQ-005 - AGENT_RUN_20241204_001]
 
 
 class SalesOrder(TotalPriceMixin, Order):
@@ -1641,6 +1679,47 @@ class SalesOrder(TotalPriceMixin, Order):
     def pending_allocation_count(self):
         """Return the number of pending (non-shipped) allocations."""
         return self.pending_allocations().count()
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:REQ-006]
+    # Enhanced sales order management functionality
+    def get_sales_order_summary(self):
+        """Return comprehensive sales order summary for REQ-006 support."""
+        return {
+            'order_id': self.pk,
+            'reference': self.reference,
+            'customer': str(self.customer) if self.customer else None,
+            'status': self.get_status_display(),
+            'status_code': self.status,
+            'total_price': str(self.total_price) if self.total_price else '0',
+            'line_item_count': self.line_count(),
+            'completed_lines': self.completed_line_count(),
+            'pending_lines': self.pending_line_count(),
+            'shipment_count': self.shipment_count(),
+            'pending_shipments': self.pending_shipment_count(),
+            'is_complete': self.is_complete(),
+            'is_pending': self.is_pending(),
+            'creation_date': self.creation_date,
+            'target_date': self.target_date,
+            'shipment_date': self.shipment_date,
+            'responsible': str(self.responsible) if self.responsible else None,
+        }
+    
+    def get_customer_summary(self):
+        """Return customer information for sales order for REQ-006 support."""
+        if not self.customer:
+            return None
+        return {
+            'customer_name': self.customer.name,
+            'customer_id': self.customer.pk,
+            'contact_info': {
+                'email': self.customer.email,
+                'phone': self.customer.phone,
+                'website': self.customer.website,
+            },
+            'address': str(self.customer.primary_address) if self.customer.primary_address else None,
+            'orders_count': SalesOrder.objects.filter(customer=self.customer).count(),
+        }
+    # [END AGENT GENERATED CODE - REQ-006 - AGENT_RUN_20241204_001]
 
 
 @receiver(post_save, sender=SalesOrder, dispatch_uid='sales_order_post_save')

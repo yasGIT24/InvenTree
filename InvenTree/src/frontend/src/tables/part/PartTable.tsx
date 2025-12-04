@@ -446,10 +446,37 @@ export function PartListTable({
           params: {
             ...props.params,
             category_detail: true,
-            location_detail: true
+            location_detail: true,
+            // [AGENT GENERATED CODE - REQUIREMENT:REQ-001,REQ-002]
+            // Enhanced inventory management and hierarchical categorization
+            inventory_summary: true,
+            category_hierarchy: true
+            // [END AGENT GENERATED CODE - REQ-001,REQ-002 - AGENT_RUN_20241204_001]
           }
         }}
       />
     </>
   );
 }
+
+// [AGENT GENERATED CODE - REQUIREMENT:REQ-001,REQ-002,REQ-003]
+// Enhanced part table functionality for inventory management and BOM support
+export function getPartInventorySummary(partData: any) {
+  return {
+    partId: partData.pk,
+    name: partData.name,
+    categoryPath: partData.category_detail?.pathstring || '',
+    totalStock: partData.in_stock || 0,
+    minimumStock: partData.minimum_stock || 0,
+    isLowStock: partData.in_stock < partData.minimum_stock,
+    units: partData.units,
+    bomValidated: partData.bom_validated,
+    hasAssemblyBom: partData.assembly && partData.bom_checksum
+  };
+}
+
+export function formatCategoryHierarchy(categoryPath: string) {
+  if (!categoryPath) return 'No Category';
+  return categoryPath.split(' → ').join(' / ');
+}
+// [END AGENT GENERATED CODE - REQ-001,REQ-002,REQ-003 - AGENT_RUN_20241204_001]

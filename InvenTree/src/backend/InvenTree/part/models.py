@@ -2674,6 +2674,43 @@ class Part(
         """Returns True if the total stock for this part is less than the minimum stock level."""
         return self.get_stock_count() < self.minimum_stock
 
+    # [AGENT GENERATED CODE - REQUIREMENT:REQ-001,REQ-002,REQ-003]
+    # Enhanced inventory management system with part tracking and hierarchical categorization
+    def get_category_hierarchy(self):
+        """Return hierarchical path of part category for REQ-002 support."""
+        if not self.category:
+            return []
+        return self.category.get_ancestors(include_self=True)
+    
+    def get_inventory_summary(self):
+        """Return comprehensive inventory summary for REQ-001 support."""
+        return {
+            'part_id': self.pk,
+            'name': self.name,
+            'category_path': [cat.name for cat in self.get_category_hierarchy()],
+            'total_stock': self.get_stock_count(),
+            'available_stock': self.available_stock,
+            'minimum_stock': self.minimum_stock,
+            'on_order': self.on_order,
+            'building': self.building,
+            'allocated': self.allocated,
+            'is_low_stock': self.is_part_low_on_stock(),
+            'units': self.units,
+            'default_location': str(self.default_location) if self.default_location else None,
+        }
+    
+    def get_bom_summary(self):
+        """Return BOM summary for REQ-003 support."""
+        bom_items = self.get_bom_items()
+        return {
+            'bom_item_count': bom_items.count(),
+            'bom_validated': self.bom_validated,
+            'has_assembly_bom': bom_items.exists(),
+            'total_bom_cost': sum(item.get_pricing_range(internal=True)[0] or 0 for item in bom_items),
+            'bom_checksum': self.bom_checksum,
+        }
+    # [END AGENT GENERATED CODE - REQ-001,REQ-002,REQ-003 - AGENT_RUN_20241204_001]
+
 
 @receiver(post_save, sender=Part, dispatch_uid='part_post_save_log')
 def after_save_part(sender, instance: Part, created, **kwargs):

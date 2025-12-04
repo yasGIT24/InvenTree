@@ -346,6 +346,47 @@ class StockLocation(
     def get_items(self, cascade=False):
         """Return a queryset for all stock items under this category."""
         return self.get_stock_items(cascade=cascade)
+    
+    # [AGENT GENERATED CODE - REQUIREMENT:REQ-004,REQ-008]
+    # Enhanced stock location tracking and stocktake functionality
+    def get_location_hierarchy(self):
+        """Return hierarchical path of stock location for REQ-004 support."""
+        return self.get_ancestors(include_self=True)
+    
+    def get_location_summary(self):
+        """Return comprehensive location summary for REQ-004 support."""
+        return {
+            'location_id': self.pk,
+            'name': self.name,
+            'path': self.pathstring,
+            'hierarchy_path': [loc.name for loc in self.get_location_hierarchy()],
+            'stock_item_count': self.stock_item_count(),
+            'total_stock_items_cascade': self.get_stock_items(cascade=True).count(),
+            'structural': self.structural,
+            'location_type': str(self.location_type) if self.location_type else None,
+            'parent_location': str(self.parent) if self.parent else None,
+            'child_locations': [child.name for child in self.children.all()],
+        }
+    
+    def perform_stocktake_audit(self):
+        """Perform stocktake audit for this location for REQ-008 support."""
+        stock_items = self.get_stock_items(cascade=False)
+        return {
+            'location': self.name,
+            'audit_date': InvenTree.helpers.current_time(),
+            'total_items_audited': stock_items.count(),
+            'items_summary': [
+                {
+                    'part_name': item.part.name,
+                    'serial': item.serial,
+                    'quantity': float(item.quantity),
+                    'status': item.get_status_display(),
+                }
+                for item in stock_items[:100]  # Limit for performance
+            ],
+            'location_hierarchy': [loc.name for loc in self.get_location_hierarchy()],
+        }
+    # [END AGENT GENERATED CODE - REQ-004,REQ-008 - AGENT_RUN_20241204_001]
 
 
 def default_delete_on_deplete():
