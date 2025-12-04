@@ -670,6 +670,31 @@ class PurchaseOrder(TotalPriceMixin, Order):
         verbose_name=_('Destination'),
         help_text=_('Destination for received items'),
     )
+    
+    # Fields for tracking cancelled purchase orders
+    cancellation_date = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name=_('Cancellation Date'),
+        help_text=_('Date order was cancelled'),
+    )
+    
+    cancellation_reason = models.CharField(
+        max_length=250,
+        blank=True,
+        verbose_name=_('Cancellation Reason'),
+        help_text=_('Reason for order cancellation'),
+    )
+    
+    cancelled_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='+',
+        verbose_name=_('Cancelled By'),
+        help_text=_('User who cancelled this order'),
+    )
 
     @transaction.atomic
     def add_line_item(
@@ -830,8 +855,17 @@ class PurchaseOrder(TotalPriceMixin, Order):
         )
 
     @transaction.atomic
-    def cancel_order(self):
-        """Attempt to transition to CANCELLED status."""
+    def cancel_order(self, reason='', user=None):
+        """Attempt to transition to CANCELLED status.
+        
+        Args:
+            reason: Reason for cancellation
+            user: User who is cancelling the order
+        """
+        # Store the reason and user for the _action_cancel method to use
+        self._cancellation_reason = reason
+        self._cancellation_user = user
+        
         return self.handle_transition(
             self.status, PurchaseOrderStatus.CANCELLED.value, self, self._action_cancel
         )
@@ -859,9 +893,24 @@ class PurchaseOrder(TotalPriceMixin, Order):
         """Marks the PurchaseOrder as CANCELLED."""
         if self.can_cancel:
             self.status = PurchaseOrderStatus.CANCELLED.value
+            
+            # Record cancellation information
+            self.cancellation_date = InvenTree.helpers.current_date()
+            
+            if hasattr(self, '_cancellation_reason'):
+                self.cancellation_reason = self._cancellation_reason
+                
+            if hasattr(self, '_cancellation_user') and self._cancellation_user:
+                self.cancelled_by = self._cancellation_user
+                
             self.save()
 
             trigger_event(PurchaseOrderEvents.CANCELLED, id=self.pk)
+            
+            # Include cancellation reason in notification if provided
+            extra_context = {}
+            if self.cancellation_reason:
+                extra_context['reason'] = self.cancellation_reason
 
             # Notify users that the order has been canceled
             notify_responsible(
@@ -869,6 +918,7 @@ class PurchaseOrder(TotalPriceMixin, Order):
                 PurchaseOrder,
                 exclude=self.created_by,
                 content=InvenTreeNotificationBodies.OrderCanceled,
+                context=extra_context,
                 extra_users=self.subscribed_users(),
             )
 
@@ -2006,6 +2056,10 @@ class SalesOrderLineItem(OrderLineItem):
         part: Link to a Part object (may be null)
         sale_price: The unit sale price for this OrderLineItem
         shipped: The number of items which have actually shipped against this line item
+        requires_approval: Whether this line item requires approval when edited
+        approved: Whether this line item has been approved
+        approved_by: The user who approved this line item
+        approved_date: The date this line item was approved
     """
 
     class Meta:
@@ -2074,6 +2128,36 @@ class SalesOrderLineItem(OrderLineItem):
         max_digits=15,
         decimal_places=5,
         validators=[MinValueValidator(0)],
+    )
+    
+    # Approval workflow fields
+    requires_approval = models.BooleanField(
+        default=False,
+        verbose_name=_('Requires Approval'),
+        help_text=_('This line item requires approval when edited')
+    )
+    
+    approved = models.BooleanField(
+        default=True,
+        verbose_name=_('Approved'),
+        help_text=_('This line item has been approved')
+    )
+    
+    approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='approved_sales_order_line_items',
+        verbose_name=_('Approved By'),
+        help_text=_('User who approved this line item')
+    )
+    
+    approved_date = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name=_('Approved Date'),
+        help_text=_('Date this line item was approved')
     )
 
     def fulfilled_quantity(self):

@@ -353,6 +353,23 @@ def auth_exempt(view_func):
     return wraps(view_func)(wrapped_view)
 
 
+def inventory_permission(permission):
+    """Decorator for marking a view as requiring a specific inventory action permission.
+    
+    Args:
+        permission: The permission string (e.g., 'stock.can_adjust_stock')
+        
+    Returns:
+        A decorated function that sets the inventory_action_permission attribute
+    """
+    
+    def decorator(func):
+        func.inventory_action_permission = permission
+        return func
+    
+    return decorator
+
+
 class UserSettingsPermissionsOrScope(OASTokenMixin, permissions.BasePermission):
     """Special permission class to determine if the user can view / edit a particular setting."""
 
@@ -441,3 +458,113 @@ class DataImporterPermission(OASTokenMixin, permissions.BasePermission):
                 )
 
         return True
+        
+        
+class InventoryActionPermission(OASTokenMixin, permissions.BasePermission):
+    """Permission class for inventory actions.
+    
+    This permission class enforces role-based access control for inventory actions.
+    The view using this permission class must define an `inventory_action_permission`
+    attribute, which specifies the permission required for the action.
+    
+    For example:
+    
+        inventory_action_permission = 'stock.can_adjust_stock'
+        
+    This would require the user to have the 'can_adjust_stock' permission for the 'stock' app.
+    
+    Additionally, views can specify an optional attribute `inventory_object_permission`
+    which determines the object-level permission check to apply. This is useful for
+    operations that require specific permissions on specific objects.
+    """
+    
+    def has_permission(self, request, view):
+        """Determine if the user has permission to perform the requested inventory action."""
+        
+        # User must be authenticated
+        if not request.user or not request.user.is_authenticated:
+            return False
+            
+        # Superuser can do anything
+        if request.user.is_superuser:
+            return True
+            
+        # Check if the view has defined a required permission
+        permission = getattr(view, 'inventory_action_permission', None)
+        
+        if not permission:
+            # No specific permission required, fall back to standard permission checks
+            return super().has_permission(request, view)
+            
+        # Split the permission string into app_label and permission name
+        if '.' in permission:
+            app_label, permission_name = permission.split('.')
+        else:
+            # If no app_label is specified, use 'stock' as default
+            app_label = 'stock'
+            permission_name = permission
+            
+        # Check if the user has the required permission
+        return users.permissions.check_user_role(request.user, app_label, permission_name)
+        
+    def has_object_permission(self, request, view, obj):
+        """Check if the user has permission to access the specific object.
+        
+        For inventory actions, we also need to check if the user has access
+        to the specific inventory item being affected.
+        """
+        
+        # First, check if the user has the general permission
+        if not self.has_permission(request, view):
+            return False
+        
+        # Check if the view has specified an object permission handler
+        object_permission = getattr(view, 'inventory_object_permission', None)
+        if object_permission and hasattr(view, object_permission):
+            # Call the specific object permission handler on the view
+            return getattr(view, object_permission)(request, obj)
+            
+        # For stock items, check ownership or assigned user
+        if hasattr(obj, 'owner') and obj.owner:
+            return obj.owner == request.user
+            
+        # For stock items with a responsible person, check responsibility
+        if hasattr(obj, 'responsible') and obj.responsible:
+            return request.user in obj.responsible.get_related_users()
+            
+        # For location restrictions, check user access to the location
+        if hasattr(obj, 'location') and obj.location:
+            # Check if the user has permission to access this location
+            if hasattr(obj.location, 'check_user_permission'):
+                if not obj.location.check_user_permission(request.user, 'view'):
+                    return False
+            
+        # If the object has a 'stock_item' attribute, check permissions for that
+        if hasattr(obj, 'stock_item'):
+            return self.has_object_permission(request, view, obj.stock_item)
+            
+        # Default to allowing access if no specific restrictions apply
+        return True
+        
+    def get_required_alternate_scopes(self, request, view):
+        """Return the required scopes for the current request."""
+        permission = getattr(view, 'inventory_action_permission', None)
+        
+        if permission:
+            # Get the app_label and permission name
+            if '.' in permission:
+                app_label, permission_name = permission.split('.')
+            else:
+                app_label = 'stock'
+                permission_name = permission
+                
+            # Map the permission to a role
+            role = f"{app_label}.{permission_name}"
+            
+            return map_scope(roles=[role])
+        
+        # Fall back to default permission mappings
+        return map_scope(
+            roles=_roles,
+            map_read=permissions.SAFE_METHODS,
+        )
