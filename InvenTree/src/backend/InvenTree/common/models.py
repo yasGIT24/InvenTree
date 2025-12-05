@@ -2874,6 +2874,177 @@ def handle_event(sender, event, esp_name, **kwargs):
 
 # endregion Email
 
+# region Usage Metrics
+# [AGENT GENERATED CODE - REQUIREMENT: REQ-001]
+class UsageMetrics(models.Model):
+    """Model for tracking usage metrics across the InvenTree system.
+    
+    This model stores various usage statistics and metrics to help
+    track system usage patterns and generate analytics.
+    """
+    
+    class MetricType(models.TextChoices):
+        """Available metric types for tracking."""
+        API_CALL = 'api_call', _('API Call')
+        PAGE_VIEW = 'page_view', _('Page View')
+        USER_ACTION = 'user_action', _('User Action')
+        SYSTEM_EVENT = 'system_event', _('System Event')
+        EXPORT_EVENT = 'export_event', _('Export Event')
+        REPORT_GENERATION = 'report_generation', _('Report Generation')
+    
+    # Basic tracking fields
+    timestamp = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name=_('Timestamp'),
+        help_text=_('When the metric was recorded'),
+        db_index=True
+    )
+    
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name=_('User'),
+        help_text=_('User associated with this metric')
+    )
+    
+    metric_type = models.CharField(
+        max_length=20,
+        choices=MetricType.choices,
+        verbose_name=_('Metric Type'),
+        help_text=_('Type of metric being tracked'),
+        db_index=True
+    )
+    
+    # Event details
+    event_name = models.CharField(
+        max_length=255,
+        verbose_name=_('Event Name'),
+        help_text=_('Name or identifier of the event'),
+        db_index=True
+    )
+    
+    # Context information
+    module = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_('Module'),
+        help_text=_('System module where event occurred')
+    )
+    
+    url_path = models.CharField(
+        max_length=500,
+        blank=True,
+        verbose_name=_('URL Path'),
+        help_text=_('URL path for web-based events')
+    )
+    
+    ip_address = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        verbose_name=_('IP Address'),
+        help_text=_('IP address of the client')
+    )
+    
+    user_agent = models.TextField(
+        blank=True,
+        verbose_name=_('User Agent'),
+        help_text=_('User agent string from client')
+    )
+    
+    # Metrics data
+    duration_ms = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_('Duration (ms)'),
+        help_text=_('Duration of the event in milliseconds')
+    )
+    
+    data_size_bytes = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_('Data Size (bytes)'),
+        help_text=_('Size of data processed in bytes')
+    )
+    
+    # Additional context as JSON
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_('Metadata'),
+        help_text=_('Additional metric data as JSON')
+    )
+    
+    class Meta:
+        """Meta options for UsageMetrics model."""
+        verbose_name = _('Usage Metric')
+        verbose_name_plural = _('Usage Metrics')
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['timestamp', 'metric_type']),
+            models.Index(fields=['user', 'timestamp']),
+            models.Index(fields=['event_name', 'timestamp']),
+        ]
+    
+    def __str__(self):
+        """String representation of the metric."""
+        return f"{self.metric_type}: {self.event_name} @ {self.timestamp}"
+    
+    @classmethod
+    def record_metric(cls, metric_type, event_name, user=None, **kwargs):
+        """Convenience method to record a new metric.
+        
+        Args:
+            metric_type: Type of metric (from MetricType choices)
+            event_name: Name/identifier of the event
+            user: User associated with the event (optional)
+            **kwargs: Additional fields to set on the metric
+        
+        Returns:
+            UsageMetrics: The created metric instance
+        """
+        return cls.objects.create(
+            metric_type=metric_type,
+            event_name=event_name,
+            user=user,
+            **kwargs
+        )
+    
+    @classmethod
+    def get_metrics_summary(cls, start_date=None, end_date=None, user=None):
+        """Get a summary of metrics for the specified period.
+        
+        Args:
+            start_date: Start date for the summary (optional)
+            end_date: End date for the summary (optional)  
+            user: Filter by specific user (optional)
+            
+        Returns:
+            dict: Summary statistics
+        """
+        queryset = cls.objects.all()
+        
+        if start_date:
+            queryset = queryset.filter(timestamp__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(timestamp__lte=end_date)
+        if user:
+            queryset = queryset.filter(user=user)
+            
+        return {
+            'total_events': queryset.count(),
+            'unique_users': queryset.values('user').distinct().count(),
+            'events_by_type': queryset.values('metric_type').annotate(
+                count=models.Count('id')
+            ),
+            'top_events': queryset.values('event_name').annotate(
+                count=models.Count('id')
+            ).order_by('-count')[:10],
+        }
+
+# endregion Usage Metrics
+
 # region tracing for django q
 if TRACE_PROC:  # pragma: no cover
 

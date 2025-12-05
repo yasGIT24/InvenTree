@@ -24,6 +24,13 @@ export interface DashboardWidgetProps {
   modelType?: ModelType;
   render: () => JSX.Element;
   visible?: () => boolean;
+  // [AGENT GENERATED CODE - REQUIREMENT: REQ-001, REQ-003]
+  widgetType?: 'default' | 'metrics' | 'summary';
+  metricsConfig?: {
+    metricTypes?: string[];
+    refreshInterval?: number;
+    dateRange?: number; // days
+  };
 }
 
 /**

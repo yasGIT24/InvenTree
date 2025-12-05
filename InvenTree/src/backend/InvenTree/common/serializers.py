@@ -889,3 +889,56 @@ class TestEmailSerializer(serializers.Serializer):
         fields = ['email']
 
     email = serializers.EmailField(required=True)
+
+
+# [AGENT GENERATED CODE - REQUIREMENT: REQ-001]
+class UsageMetricsSerializer(InvenTreeModelSerializer):
+    """Serializer for the UsageMetrics model."""
+    
+    user = UserSerializer(read_only=True)
+    user_detail = serializers.SerializerMethodField()
+    
+    class Meta:
+        """Meta options for UsageMetricsSerializer."""
+        
+        model = common_models.UsageMetrics
+        fields = [
+            'pk',
+            'timestamp',
+            'user',
+            'user_detail',
+            'metric_type',
+            'event_name',
+            'module',
+            'url_path',
+            'ip_address',
+            'user_agent',
+            'duration_ms',
+            'data_size_bytes',
+            'metadata',
+        ]
+        
+        read_only_fields = [
+            'pk',
+            'timestamp',
+            'user',
+            'ip_address',
+            'user_agent',
+        ]
+    
+    def get_user_detail(self, obj):
+        """Return user details if user is set."""
+        if obj.user:
+            return {
+                'id': obj.user.id,
+                'username': obj.user.username,
+                'first_name': obj.user.first_name,
+                'last_name': obj.user.last_name,
+            }
+        return None
+        
+    def validate_metadata(self, value):
+        """Validate metadata field."""
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Metadata must be a valid JSON object")
+        return value

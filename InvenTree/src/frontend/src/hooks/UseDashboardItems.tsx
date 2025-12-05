@@ -87,11 +87,74 @@ export function useDashboardItems(): DashboardLibraryProps {
     );
   }, [pluginQuery.data, inventreeContext]);
 
+  // [AGENT GENERATED CODE - REQUIREMENT: REQ-001, REQ-003] 
+  const metricsItems: DashboardWidgetProps[] = useMemo(() => {
+    return [
+      {
+        label: 'metrics-summary',
+        title: 'Usage Metrics Summary',
+        description: 'Summary of system usage metrics and analytics',
+        widgetType: 'summary',
+        enabled: true,
+        minWidth: 4,
+        minHeight: 2,
+        render: () => {
+          // Dynamic import to avoid circular dependencies
+          return import('../components/dashboard/DashboardSummaryModule').then(
+            (module) => module.default()
+          );
+        }
+      },
+      {
+        label: 'metrics-widget-compact',
+        title: 'Usage Metrics (Compact)',
+        description: 'Compact view of recent usage metrics',
+        widgetType: 'metrics',
+        enabled: true,
+        minWidth: 2,
+        minHeight: 1,
+        metricsConfig: {
+          refreshInterval: 300000, // 5 minutes
+          dateRange: 7 // last 7 days
+        },
+        render: () => {
+          return import('../components/metrics/MetricsWidget').then(
+            (module) => module.default({ 
+              compact: true,
+              title: 'Recent Activity'
+            })
+          );
+        }
+      },
+      {
+        label: 'metrics-widget-detailed',
+        title: 'Usage Metrics (Detailed)',
+        description: 'Detailed view of usage metrics with breakdowns',
+        widgetType: 'metrics',
+        enabled: true,
+        minWidth: 3,
+        minHeight: 2,
+        metricsConfig: {
+          refreshInterval: 300000, // 5 minutes
+          dateRange: 30 // last 30 days
+        },
+        render: () => {
+          return import('../components/metrics/MetricsWidget').then(
+            (module) => module.default({ 
+              compact: false,
+              title: 'Usage Analytics'
+            })
+          );
+        }
+      }
+    ];
+  }, []);
+
   const items: DashboardWidgetProps[] = useMemo(() => {
-    const widgets = [...builtin, ...pluginDashboardItems];
+    const widgets = [...builtin, ...pluginDashboardItems, ...metricsItems];
 
     return widgets.filter((item) => item.enabled ?? true);
-  }, [builtin, pluginDashboardItems]);
+  }, [builtin, pluginDashboardItems, metricsItems]);
 
   const loaded: boolean = useMemo(() => {
     if (pluginsEnabled) {

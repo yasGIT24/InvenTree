@@ -168,3 +168,95 @@ def check_user_permission(
     InvenTree.cache.set_session_cache(cache_key, result)
 
     return result
+
+
+# [AGENT GENERATED CODE - REQUIREMENT: REQ-001]
+def check_metrics_permission(user: User, permission: str) -> bool:
+    """Check if user has permission for metrics operations.
+    
+    Args:
+        user: The user to check permissions for
+        permission: The permission to check ('view', 'add', 'change', 'delete', 'export')
+    
+    Returns:
+        bool: True if user has permission, False otherwise
+    """
+    from common.models import UsageMetrics
+    
+    # Check basic model permission
+    if check_user_permission(user, UsageMetrics, permission):
+        return True
+    
+    # Check specific metrics permissions
+    metrics_permissions = {
+        'view': 'common.view_usagemetrics',
+        'add': 'common.add_usagemetrics', 
+        'change': 'common.change_usagemetrics',
+        'delete': 'common.delete_usagemetrics',
+        'export': 'common.export_usagemetrics',  # Custom permission
+    }
+    
+    if permission in metrics_permissions:
+        return user.has_perm(metrics_permissions[permission])
+    
+    return False
+
+
+def check_metrics_export_permission(user: User) -> bool:
+    """Check if user can export metrics data.
+    
+    Args:
+        user: The user to check permissions for
+        
+    Returns:
+        bool: True if user can export metrics, False otherwise
+    """
+    # Users can export their own metrics
+    if check_metrics_permission(user, 'view'):
+        return True
+        
+    # Or have explicit export permission
+    return check_metrics_permission(user, 'export')
+
+
+def check_metrics_admin_permission(user: User) -> bool:
+    """Check if user has admin permissions for metrics.
+    
+    Args:
+        user: The user to check permissions for
+        
+    Returns:
+        bool: True if user has admin permissions, False otherwise
+    """
+    # Superusers have admin access
+    if user.is_superuser:
+        return True
+        
+    # Staff users with change permission
+    if user.is_staff and check_metrics_permission(user, 'change'):
+        return True
+        
+    return False
+
+
+def get_metrics_queryset_for_user(user: User):
+    """Get the metrics queryset filtered for user permissions.
+    
+    Args:
+        user: The user to get queryset for
+        
+    Returns:
+        QuerySet: Filtered metrics queryset based on user permissions
+    """
+    from common.models import UsageMetrics
+    
+    # Admin users see all metrics
+    if check_metrics_admin_permission(user):
+        return UsageMetrics.objects.all()
+    
+    # Regular users see only their own metrics
+    if check_metrics_permission(user, 'view'):
+        return UsageMetrics.objects.filter(user=user)
+    
+    # No permission - empty queryset
+    return UsageMetrics.objects.none()

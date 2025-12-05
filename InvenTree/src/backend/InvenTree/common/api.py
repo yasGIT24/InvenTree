@@ -891,6 +891,90 @@ class TestEmail(CreateAPI):
             )  # pragma: no cover
 
 
+# [AGENT GENERATED CODE - REQUIREMENT: REQ-001]
+class UsageMetricsList(ListCreateAPI):
+    """API endpoint for listing and creating usage metrics."""
+    
+    queryset = common.models.UsageMetrics.objects.all()
+    serializer_class = common.serializers.UsageMetricsSerializer
+    permission_classes = [IsAuthenticated]
+    
+    filter_backends = SEARCH_ORDER_FILTER
+    filterset_fields = ['metric_type', 'event_name', 'user', 'module']
+    
+    ordering_fields = ['timestamp', 'metric_type', 'event_name']
+    search_fields = ['event_name', 'module', 'metadata']
+    
+    def perform_create(self, serializer):
+        """Automatically set the user when creating a metric."""
+        # Extract client IP and user agent from request
+        ip_address = self.request.META.get('REMOTE_ADDR')
+        user_agent = self.request.META.get('HTTP_USER_AGENT', '')
+        
+        serializer.save(
+            user=self.request.user if self.request.user.is_authenticated else None,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+
+
+class UsageMetricsDetail(RetrieveUpdateDestroyAPI):
+    """Detail API endpoint for usage metrics."""
+    
+    queryset = common.models.UsageMetrics.objects.all()
+    serializer_class = common.serializers.UsageMetricsSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class MetricsSummaryView(APIView):
+    """API endpoint for retrieving usage metrics summaries."""
+    
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        description="Get usage metrics summary",
+        responses={
+            200: OpenApiResponse(description="Metrics summary data")
+        }
+    )
+    def get(self, request):
+        """Return summary statistics for usage metrics."""
+        from datetime import datetime, timedelta
+        from django.utils import timezone
+        
+        # Parse query parameters
+        start_date = request.GET.get('start_date')
+        end_date = request.GET.get('end_date')
+        user_id = request.GET.get('user_id')
+        
+        # Default to last 30 days if no dates provided
+        if not start_date:
+            start_date = timezone.now() - timedelta(days=30)
+        else:
+            start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            
+        if end_date:
+            end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        
+        # Get user if specified
+        user = None
+        if user_id:
+            try:
+                from django.contrib.auth.models import User
+                user = User.objects.get(pk=user_id)
+            except User.DoesNotExist:
+                pass
+        
+        # Get summary data
+        summary = common.models.UsageMetrics.get_metrics_summary(
+            start_date=start_date,
+            end_date=end_date,
+            user=user
+        )
+        
+        return Response(summary)
+
+
 selection_urls = [
     path(
         '<int:pk>/',
@@ -971,6 +1055,15 @@ common_api_urls = [
             ),
             path('failed/', FailedTaskList.as_view(), name='api-failed-task-list'),
             path('', BackgroundTaskOverview.as_view(), name='api-task-overview'),
+        ]),
+    ),
+    # [AGENT GENERATED CODE - REQUIREMENT: REQ-001] Usage Metrics
+    path(
+        'metrics/',
+        include([
+            path('summary/', MetricsSummaryView.as_view(), name='api-metrics-summary'),
+            path('<int:pk>/', UsageMetricsDetail.as_view(), name='api-metrics-detail'),
+            path('', UsageMetricsList.as_view(), name='api-metrics-list'),
         ]),
     ),
     # Attachments
