@@ -1,0 +1,9 @@
+US1: As a sales manager, I want the FEFO logic to be configurable for exceptions, so that I can handle special cases appropriately.
+
+Description: The system should allow overrides of the standard FEFO logic when necessary.
+
+Acceptance Criteria:
+- Exceptions can be configured for promotional items
+- Urgent orders can bypass standard FEFO when needed
+- Exception usage is logged for audit purposes
+- Authorization levels are enforced for FEFO exceptions

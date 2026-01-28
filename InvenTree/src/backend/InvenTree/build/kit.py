@@ -322,7 +322,7 @@ class KitItem(InvenTree.models.InvenTreeMetadataModel):
         return self.completed is True
 
     @transaction.atomic
-    def allocate(self, user=None, stock_item=None):
+    def allocate(self, user=None, stock_item=None, exception_tag=None, urgent: bool = False):
         """Allocate stock to this KitItem.
 
         Args:
@@ -334,19 +334,16 @@ class KitItem(InvenTree.models.InvenTreeMetadataModel):
 
         # If stock_item not specified, attempt to find suitable stock
         if not stock_item:
-            # Find available stock
-            stock_items = stock.models.StockItem.objects.filter(
-                part=self.bom_item.sub_part,
-                quantity__gte=self.quantity
+            # Use centralized selection helper which implements FEFO and
+            # allows for exception/urgent bypass behaviour
+            stock_items = stock.models.StockItem.select_for_allocation(
+                self.bom_item.sub_part,
+                quantity=self.quantity,
+                exception_tag=exception_tag,
+                urgent=urgent,
             )
 
-            # Filter for available stock
-            stock_items = stock_items.filter(stock.models.StockItem.IN_STOCK_FILTER)
-
-            # Order by oldest first
-            stock_items = stock_items.order_by('creation_date')
-
-            if stock_items.count() > 0:
+            if stock_items.exists():
                 stock_item = stock_items.first()
             else:
                 return False
@@ -356,14 +353,23 @@ class KitItem(InvenTree.models.InvenTreeMetadataModel):
         self.save()
 
         # Add a tracking entry for this allocation
+        deltas = {
+            'kit': self.kit.pk,
+            'kit_item': self.pk,
+        }
+
+        # Record exception metadata when applicable
+        if exception_tag:
+            deltas['fefo_exception'] = exception_tag
+
+        if urgent:
+            deltas['urgent_allocation'] = True
+
         stock_item.add_tracking_entry(
             StockHistoryCode.KIT_ALLOCATION,
             user,
             notes=f"Allocated to kit {self.kit.reference}",
-            deltas={
-                'kit': self.kit.pk,
-                'kit_item': self.pk,
-            }
+            deltas=deltas,
         )
 
         return True
