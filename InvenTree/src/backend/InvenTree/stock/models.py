@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import timedelta
+from datetime import timedelta, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
@@ -12,7 +12,7 @@ from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models, transaction
-from django.db.models import Q, QuerySet, Sum
+from django.db.models import Q, QuerySet, Sum, Value
 from django.db.models.functions import Coalesce
 from django.db.models.signals import post_delete, post_save
 from django.db.utils import IntegrityError, OperationalError
@@ -1494,6 +1494,47 @@ class StockItem(
     def is_allocated(self):
         """Return True if this StockItem is allocated to a SalesOrder or a Build."""
         return self.allocation_count() > 0
+
+    @classmethod
+    def select_for_allocation(
+        cls,
+        part,
+        quantity=1,
+        exception_tag=None,
+        urgent: bool = False,
+        location=None,
+    ):
+        """Return a queryset of StockItem objects suitable for allocation.
+
+        By default this implements FEFO ordering (earliest expiry first).
+        If `exception_tag` or `urgent` is specified, FEFO ordering is bypassed
+        and newer stock (by creation date) is preferred.
+
+        Arguments:
+            part: Part instance to filter stock for
+            quantity: Minimum required quantity
+            exception_tag: Optional flag to bypass FEFO ordering
+            urgent: If True, allow bypass of FEFO ordering
+            location: Optional location to filter stock by
+        """
+        query = cls.objects.filter(part=part, quantity__gte=quantity)
+
+        # Only consider stock items that are "in stock"
+        query = query.filter(cls.IN_STOCK_FILTER)
+
+        if location:
+            query = query.filter(location=location)
+
+        # If an exception is requested, bypass FEFO ordering and prefer newer stock
+        if exception_tag or urgent:
+            query = query.order_by('-creation_date')
+        else:
+            # FEFO: order by expiry_date (nulls treated as far future), then by creation_date
+            query = query.annotate(
+                _expiry=Coalesce('expiry_date', Value(datetime.max))
+            ).order_by('_expiry', 'creation_date')
+
+        return query
 
     def build_allocation_count(self, **kwargs):
         """Return the total quantity allocated to builds, with optional filters."""
